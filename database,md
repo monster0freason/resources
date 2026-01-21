@@ -1,0 +1,164 @@
+erDiagram
+    User ||--o{ Goal : "creates/assigned"
+    User ||--o{ PerformanceReview : "has"
+    User ||--o{ Notification : "receives"
+    User ||--o{ AuditLog : "performs"
+    User ||--o{ Feedback : "gives"
+    User }o--|| User : "reports to (manager)"
+    
+    ReviewCycle ||--o{ PerformanceReview : "contains"
+    
+    Goal ||--o{ GoalCompletionApproval : "has"
+    Goal ||--o{ Feedback : "receives"
+    Goal ||--o{ PerformanceReviewGoals : "links to"
+    
+    PerformanceReview ||--o{ PerformanceReviewGoals : "includes"
+    PerformanceReview ||--o{ Feedback : "contains"
+    
+    User {
+        int UserID PK
+        string Name
+        string Email UK
+        string PasswordHash
+        string Role
+        string Department
+        int ManagerID FK
+        string Status
+        datetime CreatedDate
+        datetime LastModifiedDate
+    }
+    
+    ReviewCycle {
+        int CycleID PK
+        string Title
+        date StartDate
+        date EndDate
+        string Status
+        boolean RequiresCompletionApproval
+        boolean EvidenceRequired
+        datetime CreatedDate
+        datetime LastModifiedDate
+    }
+    
+    Goal {
+        int GoalID PK
+        string Title
+        text Description
+        string Category
+        string Priority
+        int AssignedToUserID FK
+        int AssignedManagerID FK
+        date StartDate
+        date EndDate
+        string Status
+        string EvidenceLink
+        text EvidenceLinkDescription
+        text EvidenceAccessInstructions
+        string EvidenceLinkVerificationStatus
+        text EvidenceLinkVerificationNotes
+        int EvidenceLinkVerifiedBy FK
+        datetime EvidenceLinkVerifiedDate
+        string CompletionApprovalStatus
+        datetime CompletionSubmittedDate
+        text CompletionNotes
+        int CompletionApprovedBy FK
+        datetime CompletionApprovedDate
+        datetime FinalCompletionDate
+        text ManagerCompletionComments
+        int ApprovedBy FK
+        datetime ApprovedDate
+        boolean RequestChanges
+        int LastReviewedBy FK
+        datetime LastReviewedDate
+        datetime ResubmittedDate
+        datetime CreatedDate
+        datetime LastModifiedDate
+    }
+    
+    GoalCompletionApproval {
+        int ApprovalID PK
+        int GoalID FK
+        string ApprovalDecision
+        int ApprovedBy FK
+        datetime ApprovalDate
+        text ManagerComments
+        boolean EvidenceLinkVerified
+        text DecisionRationale
+        datetime CreatedDate
+    }
+    
+    PerformanceReview {
+        int ReviewID PK
+        int CycleID FK
+        int UserID FK
+        json SelfAssessment
+        int EmployeeSelfRating
+        json ManagerFeedback
+        int ManagerRating
+        text RatingJustification
+        json CompensationRecommendations
+        text NextPeriodGoals
+        int ReviewedBy FK
+        datetime ReviewCompletedDate
+        string Status
+        datetime SubmittedDate
+        int AcknowledgedBy FK
+        datetime AcknowledgedDate
+        text EmployeeResponse
+        int TimeSpentMinutes
+        datetime CreatedDate
+        datetime LastModifiedDate
+    }
+    
+    PerformanceReviewGoals {
+        int LinkID PK
+        int ReviewID FK
+        int GoalID FK
+        datetime LinkedDate
+    }
+    
+    Feedback {
+        int FeedbackID PK
+        int ReviewID FK
+        int GoalID FK
+        int GivenByUserID FK
+        text Comments
+        string FeedbackType
+        datetime Date
+    }
+    
+    Notification {
+        int NotificationID PK
+        int UserID FK
+        string Type
+        text Message
+        string RelatedEntityType
+        int RelatedEntityID
+        string Status
+        string Priority
+        boolean ActionRequired
+        datetime CreatedDate
+        datetime ReadDate
+    }
+    
+    AuditLog {
+        int AuditID PK
+        int UserID FK
+        string Action
+        text Details
+        string RelatedEntityType
+        int RelatedEntityID
+        string IPAddress
+        string Status
+        datetime Timestamp
+    }
+    
+    Report {
+        int ReportID PK
+        string Scope
+        json Metrics
+        string Format
+        int GeneratedBy FK
+        datetime GeneratedDate
+        string FilePath
+    }
