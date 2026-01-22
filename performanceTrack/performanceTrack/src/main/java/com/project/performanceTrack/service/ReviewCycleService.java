@@ -1,0 +1,106 @@
+package com.project.performanceTrack.service;
+
+import com.project.performanceTrack.dto.CreateReviewCycleRequest;
+import com.project.performanceTrack.entity.AuditLog;
+import com.project.performanceTrack.entity.ReviewCycle;
+import com.project.performanceTrack.entity.User;
+import com.project.performanceTrack.enums.ReviewCycleStatus;
+import com.project.performanceTrack.exception.ResourceNotFoundException;
+import com.project.performanceTrack.repository.AuditLogRepository;
+import com.project.performanceTrack.repository.ReviewCycleRepository;
+import com.project.performanceTrack.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+// Review cycle management service
+@Service
+public class ReviewCycleService {
+    
+    @Autowired
+    private ReviewCycleRepository cycleRepo;
+    
+    @Autowired
+    private UserRepository userRepo;
+    
+    @Autowired
+    private AuditLogRepository auditRepo;
+    
+    // Get all review cycles
+    public List<ReviewCycle> getAllCycles() {
+        return cycleRepo.findAll();
+    }
+    
+    // Get cycle by ID
+    public ReviewCycle getCycleById(Integer cycleId) {
+        return cycleRepo.findById(cycleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Review cycle not found"));
+    }
+    
+    // Get active review cycle
+    public ReviewCycle getActiveCycle() {
+        return cycleRepo.findFirstByStatusOrderByStartDateDesc(ReviewCycleStatus.ACTIVE)
+                .orElseThrow(() -> new ResourceNotFoundException("No active review cycle found"));
+    }
+    
+    // Create review cycle (Admin)
+    public ReviewCycle createCycle(CreateReviewCycleRequest req, Integer adminId) {
+        // Create review cycle
+        ReviewCycle cycle = new ReviewCycle();
+        cycle.setTitle(req.getTitle());
+        cycle.setStartDate(req.getStartDt());
+        cycle.setEndDate(req.getEndDt());
+        cycle.setStatus(req.getStatus());
+        cycle.setRequiresCompletionApproval(req.getReqCompAppr());
+        cycle.setEvidenceRequired(req.getEvReq());
+        
+        // Save cycle
+        ReviewCycle saved = cycleRepo.save(cycle);
+        
+        // Create audit log
+        User admin = userRepo.findById(adminId).orElse(null);
+        AuditLog log = new AuditLog();
+        log.setUser(admin);
+        log.setAction("REVIEW_CYCLE_CREATED");
+        log.setDetails("Created review cycle: " + cycle.getTitle());
+        log.setRelatedEntityType("ReviewCycle");
+        log.setRelatedEntityId(saved.getCycleId());
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return saved;
+    }
+    
+    // Update review cycle (Admin)
+    public ReviewCycle updateCycle(Integer cycleId, CreateReviewCycleRequest req, Integer adminId) {
+        ReviewCycle cycle = getCycleById(cycleId);
+        
+        // Update fields
+        cycle.setTitle(req.getTitle());
+        cycle.setStartDate(req.getStartDt());
+        cycle.setEndDate(req.getEndDt());
+        cycle.setStatus(req.getStatus());
+        cycle.setRequiresCompletionApproval(req.getReqCompAppr());
+        cycle.setEvidenceRequired(req.getEvReq());
+        
+        // Save cycle
+        ReviewCycle updated = cycleRepo.save(cycle);
+        
+        // Create audit log
+        User admin = userRepo.findById(adminId).orElse(null);
+        AuditLog log = new AuditLog();
+        log.setUser(admin);
+        log.setAction("REVIEW_CYCLE_UPDATED");
+        log.setDetails("Updated review cycle: " + cycle.getTitle());
+        log.setRelatedEntityType("ReviewCycle");
+        log.setRelatedEntityId(cycleId);
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return updated;
+    }
+}

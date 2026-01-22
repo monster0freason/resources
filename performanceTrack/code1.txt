@@ -1,0 +1,721 @@
+package com.project.performanceTrack.enums;
+
+// User account status
+public enum UserStatus {
+    ACTIVE,     // User can access system
+    INACTIVE    // User cannot access system
+}
+package com.project.performanceTrack.enums;
+
+// User role types in the system
+public enum UserRole {
+    ADMIN,      // Admin user - manages system, users, reports
+    MANAGER,    // Manager - reviews employee performance, approves goals
+    EMPLOYEE    // Employee - sets goals, submits self-assessment
+}
+package com.project.performanceTrack.enums;
+
+// Review cycle status
+public enum ReviewCycleStatus {
+    ACTIVE,     // Review cycle is active - users can submit reviews
+    CLOSED      // Review cycle is closed - no more submissions
+}
+package com.project.performanceTrack.enums;
+
+// Performance review status
+public enum PerformanceReviewStatus {
+    PENDING,                        // Review not started
+    SELF_ASSESSMENT_COMPLETED,      // Employee completed self-assessment
+    MANAGER_REVIEW_COMPLETED,       // Manager completed review
+    COMPLETED,                      // Review fully completed
+    COMPLETED_AND_ACKNOWLEDGED      // Review completed and employee acknowledged
+}
+package com.project.performanceTrack.enums;
+
+// Notification types
+public enum NotificationType {
+    ACCOUNT_CREATED,                // User account created
+    GOAL_SUBMITTED,                 // Employee submitted goal for approval
+    GOAL_APPROVED,                  // Manager approved goal
+    GOAL_CHANGE_REQUESTED,          // Manager requested changes to goal
+    GOAL_RESUBMITTED,               // Employee resubmitted goal after changes
+    GOAL_COMPLETION_SUBMITTED,      // Employee submitted goal completion
+    GOAL_COMPLETION_APPROVED,       // Manager approved goal completion
+    ADDITIONAL_EVIDENCE_REQUIRED,   // Manager needs more evidence
+    REVIEW_REMINDER,                // Review cycle reminder
+    SELF_ASSESSMENT_SUBMITTED,      // Employee submitted self-assessment
+    PERFORMANCE_REVIEW_COMPLETED,   // Manager completed performance review
+    REVIEW_ACKNOWLEDGED             // Employee acknowledged review
+}
+package com.project.performanceTrack.enums;
+
+// Notification read status
+public enum NotificationStatus {
+    UNREAD,     // Notification not read yet
+    READ        // Notification has been read
+}
+package com.project.performanceTrack.enums;
+
+// Goal lifecycle status
+public enum GoalStatus {
+    PENDING,                        // Goal created, waiting for manager approval
+    IN_PROGRESS,                    // Goal approved by manager, employee working on it
+    PENDING_COMPLETION_APPROVAL,    // Employee submitted completion with evidence
+    COMPLETED,                      // Manager approved goal completion
+    REJECTED                        // Goal rejected by manager (rare case)
+}
+package com.project.performanceTrack.enums;
+
+// Goal priority levels
+public enum GoalPriority {
+    HIGH,       // High priority goal
+    MEDIUM,     // Medium priority goal
+    LOW         // Low priority goal
+}
+package com.project.performanceTrack.enums;
+
+// Goal priority levels
+public enum GoalPriority {
+    HIGH,       // High priority goal
+    MEDIUM,     // Medium priority goal
+    LOW         // Low priority goal
+}
+package com.project.performanceTrack.enums;
+
+// Evidence link verification status
+public enum EvidenceVerificationStatus {
+    NOT_VERIFIED,               // Not yet verified by manager
+    VERIFIED,                   // Manager verified evidence
+    NEEDS_ADDITIONAL_LINK,      // Manager needs additional evidence link
+    REJECTED                    // Evidence link rejected
+}
+package com.project.performanceTrack.enums;
+
+// Goal completion approval status
+public enum CompletionApprovalStatus {
+    PENDING,                        // Waiting for manager review
+    APPROVED,                       // Manager approved completion
+    ADDITIONAL_EVIDENCE_REQUIRED,   // Manager needs more evidence
+    REJECTED                        // Manager rejected completion
+}
+package com.project.performanceTrack.entity;
+
+import com.project.performanceTrack.enums.UserRole;
+import com.project.performanceTrack.enums.UserStatus;
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import java.time.LocalDateTime;
+
+// User entity - represents employees, managers, and admins
+@Entity
+@Table(name = "users")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class User {
+    
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "user_id")
+    private Integer userId;
+    
+    @Column(nullable = false, length = 100)
+    private String name;
+    
+    @Column(nullable = false, unique = true, length = 100)
+    private String email;
+    
+    @Column(name = "password_hash", nullable = false)
+    private String passwordHash;
+    
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private UserRole role;
+    
+    @Column(length = 50)
+    private String department;
+    
+    // Self-referencing FK - employee's manager
+    @ManyToOne
+    @JoinColumn(name = "manager_id")
+    private User manager;
+    
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private UserStatus status = UserStatus.ACTIVE;
+    
+    @CreationTimestamp
+    @Column(name = "created_date", updatable = false)
+    private LocalDateTime createdDate;
+    
+    @UpdateTimestamp
+    @Column(name = "last_modified_date")
+    private LocalDateTime lastModifiedDate;
+}
+package com.project.performanceTrack.entity;
+
+import com.project.performanceTrack.enums.ReviewCycleStatus;
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+// Review cycle entity - represents a performance review period
+@Entity
+@Table(name = "review_cycles")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class ReviewCycle {
+    
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "cycle_id")
+    private Integer cycleId;
+    
+    @Column(nullable = false, length = 100)
+    private String title;
+    
+    @Column(name = "start_date", nullable = false)
+    private LocalDate startDate;
+    
+    @Column(name = "end_date", nullable = false)
+    private LocalDate endDate;
+    
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private ReviewCycleStatus status;
+    
+    // Whether goal completion requires manager approval
+    @Column(name = "requires_completion_approval", nullable = false)
+    private Boolean requiresCompletionApproval = true;
+    
+    // Whether evidence is required for goals
+    @Column(name = "evidence_required", nullable = false)
+    private Boolean evidenceRequired = true;
+    
+    @CreationTimestamp
+    @Column(name = "created_date", updatable = false)
+    private LocalDateTime createdDate;
+    
+    @UpdateTimestamp
+    @Column(name = "last_modified_date")
+    private LocalDateTime lastModifiedDate;
+}
+package com.project.performanceTrack.entity;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+// Report entity - stores generated reports
+@Entity
+@Table(name = "reports")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class Report {
+    
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "report_id")
+    private Integer reportId;
+    
+    @Column(nullable = false, length = 50)
+    private String scope; // Department/User/Period
+    
+    // Metrics stored as JSON string
+    @Column(columnDefinition = "TEXT")
+    private String metrics;
+    
+    @Column(length = 20)
+    private String format; // PDF, Excel, CSV
+    
+    @ManyToOne
+    @JoinColumn(name = "generated_by")
+    private User generatedBy;
+    
+    @Column(name = "generated_date", nullable = false)
+    private LocalDateTime generatedDate;
+    
+    @Column(name = "file_path", length = 500)
+    private String filePath;
+}
+package com.project.performanceTrack.entity;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+// Performance review goals linking table - links reviews to goals
+@Entity
+@Table(name = "performance_review_goals")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class PerformanceReviewGoals {
+    
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "link_id")
+    private Integer linkId;
+    
+    @ManyToOne
+    @JoinColumn(name = "review_id", nullable = false)
+    private PerformanceReview review;
+    
+    @ManyToOne
+    @JoinColumn(name = "goal_id", nullable = false)
+    private Goal goal;
+    
+    @Column(name = "linked_date", nullable = false)
+    private LocalDateTime linkedDate;
+}
+package com.project.performanceTrack.entity;
+
+import com.project.performanceTrack.enums.PerformanceReviewStatus;
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import java.time.LocalDateTime;
+
+// Performance review entity
+@Entity
+@Table(name = "performance_reviews")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class PerformanceReview {
+    
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "review_id")
+    private Integer reviewId;
+    
+    @ManyToOne
+    @JoinColumn(name = "cycle_id", nullable = false)
+    private ReviewCycle cycle;
+    
+    @ManyToOne
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
+    
+    // Self-assessment stored as JSON string
+    @Column(name = "self_assessment", columnDefinition = "TEXT")
+    private String selfAssessment;
+    
+    @Column(name = "employee_self_rating")
+    private Integer employeeSelfRating;
+    
+    // Manager feedback stored as JSON string
+    @Column(name = "manager_feedback", columnDefinition = "TEXT")
+    private String managerFeedback;
+    
+    @Column(name = "manager_rating")
+    private Integer managerRating;
+    
+    @Column(name = "rating_justification", columnDefinition = "TEXT")
+    private String ratingJustification;
+    
+    // Compensation recommendations stored as JSON string
+    @Column(name = "compensation_recommendations", columnDefinition = "TEXT")
+    private String compensationRecommendations;
+    
+    @Column(name = "next_period_goals", columnDefinition = "TEXT")
+    private String nextPeriodGoals;
+    
+    @ManyToOne
+    @JoinColumn(name = "reviewed_by")
+    private User reviewedBy;
+    
+    @Column(name = "review_completed_date")
+    private LocalDateTime reviewCompletedDate;
+    
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
+    private PerformanceReviewStatus status = PerformanceReviewStatus.PENDING;
+    
+    @Column(name = "submitted_date")
+    private LocalDateTime submittedDate;
+    
+    @ManyToOne
+    @JoinColumn(name = "acknowledged_by")
+    private User acknowledgedBy;
+    
+    @Column(name = "acknowledged_date")
+    private LocalDateTime acknowledgedDate;
+    
+    @Column(name = "employee_response", columnDefinition = "TEXT")
+    private String employeeResponse;
+    
+    @Column(name = "time_spent_minutes")
+    private Integer timeSpentMinutes;
+    
+    @CreationTimestamp
+    @Column(name = "created_date", updatable = false)
+    private LocalDateTime createdDate;
+    
+    @UpdateTimestamp
+    @Column(name = "last_modified_date")
+    private LocalDateTime lastModifiedDate;
+}
+package com.project.performanceTrack.entity;
+
+import com.project.performanceTrack.enums.NotificationStatus;
+import com.project.performanceTrack.enums.NotificationType;
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
+
+import java.time.LocalDateTime;
+
+// Notification entity - in-app notifications
+@Entity
+@Table(name = "notifications")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class Notification {
+    
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "notification_id")
+    private Integer notificationId;
+    
+    @ManyToOne
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
+    
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 50)
+    private NotificationType type;
+    
+    @Column(columnDefinition = "TEXT")
+    private String message;
+    
+    @Column(name = "related_entity_type", length = 50)
+    private String relatedEntityType;
+    
+    @Column(name = "related_entity_id")
+    private Integer relatedEntityId;
+    
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private NotificationStatus status = NotificationStatus.UNREAD;
+    
+    @Column(length = 20)
+    private String priority;
+    
+    @Column(name = "action_required")
+    private Boolean actionRequired = false;
+    
+    @CreationTimestamp
+    @Column(name = "created_date", updatable = false)
+    private LocalDateTime createdDate;
+    
+    @Column(name = "read_date")
+    private LocalDateTime readDate;
+}
+package com.project.performanceTrack.entity;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
+
+import java.time.LocalDateTime;
+
+// Goal completion approval entity - tracks approval decisions
+@Entity
+@Table(name = "goal_completion_approvals")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class GoalCompletionApproval {
+    
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "approval_id")
+    private Integer approvalId;
+    
+    @ManyToOne
+    @JoinColumn(name = "goal_id", nullable = false)
+    private Goal goal;
+    
+    @Column(name = "approval_decision", nullable = false, length = 20)
+    private String approvalDecision; // APPROVED, REJECTED, ADDITIONAL_EVIDENCE_REQUIRED
+    
+    @ManyToOne
+    @JoinColumn(name = "approved_by", nullable = false)
+    private User approvedBy;
+    
+    @Column(name = "approval_date", nullable = false)
+    private LocalDateTime approvalDate;
+    
+    @Column(name = "manager_comments", columnDefinition = "TEXT")
+    private String managerComments;
+    
+    @Column(name = "evidence_link_verified")
+    private Boolean evidenceLinkVerified;
+    
+    @Column(name = "decision_rationale", columnDefinition = "TEXT")
+    private String decisionRationale;
+    
+    @CreationTimestamp
+    @Column(name = "created_date", updatable = false)
+    private LocalDateTime createdDate;
+}
+package com.project.performanceTrack.entity;
+
+import com.project.performanceTrack.enums.*;
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+// Goal entity - represents employee goals
+@Entity
+@Table(name = "goals")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class Goal {
+    
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "goal_id")
+    private Integer goalId;
+    
+    @Column(nullable = false, length = 200)
+    private String title;
+    
+    @Column(columnDefinition = "TEXT")
+    private String description;
+    
+    @Enumerated(EnumType.STRING)
+    @Column(length = 30)
+    private GoalCategory category;
+    
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private GoalPriority priority;
+    
+    // Employee who owns this goal
+    @ManyToOne
+    @JoinColumn(name = "assigned_to_user_id", nullable = false)
+    private User assignedToUser;
+    
+    // Manager who oversees this goal
+    @ManyToOne
+    @JoinColumn(name = "assigned_manager_id", nullable = false)
+    private User assignedManager;
+    
+    @Column(name = "start_date")
+    private LocalDate startDate;
+    
+    @Column(name = "end_date")
+    private LocalDate endDate;
+    
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 30)
+    private GoalStatus status = GoalStatus.PENDING;
+    
+    // Evidence link (only one link)
+    @Column(name = "evidence_link", length = 500)
+    private String evidenceLink;
+    
+    @Column(name = "evidence_link_description", columnDefinition = "TEXT")
+    private String evidenceLinkDescription;
+    
+    @Column(name = "evidence_access_instructions", columnDefinition = "TEXT")
+    private String evidenceAccessInstructions;
+    
+    @Enumerated(EnumType.STRING)
+    @Column(name = "evidence_link_verification_status", length = 30)
+    private EvidenceVerificationStatus evidenceLinkVerificationStatus;
+    
+    @Column(name = "evidence_link_verification_notes", columnDefinition = "TEXT")
+    private String evidenceLinkVerificationNotes;
+    
+    @ManyToOne
+    @JoinColumn(name = "evidence_link_verified_by")
+    private User evidenceLinkVerifiedBy;
+    
+    @Column(name = "evidence_link_verified_date")
+    private LocalDateTime evidenceLinkVerifiedDate;
+    
+    // Completion approval fields
+    @Enumerated(EnumType.STRING)
+    @Column(name = "completion_approval_status", length = 30)
+    private CompletionApprovalStatus completionApprovalStatus;
+    
+    @Column(name = "completion_submitted_date")
+    private LocalDateTime completionSubmittedDate;
+    
+    @Column(name = "completion_notes", columnDefinition = "TEXT")
+    private String completionNotes;
+    
+    @ManyToOne
+    @JoinColumn(name = "completion_approved_by")
+    private User completionApprovedBy;
+    
+    @Column(name = "completion_approved_date")
+    private LocalDateTime completionApprovedDate;
+    
+    @Column(name = "final_completion_date")
+    private LocalDateTime finalCompletionDate;
+    
+    @Column(name = "manager_completion_comments", columnDefinition = "TEXT")
+    private String managerCompletionComments;
+    
+    // Progress notes (stored as JSON or simple text)
+    @Column(name = "progress_notes", columnDefinition = "TEXT")
+    private String progressNotes;
+    
+    // Goal approval fields
+    @ManyToOne
+    @JoinColumn(name = "approved_by")
+    private User approvedBy;
+    
+    @Column(name = "approved_date")
+    private LocalDateTime approvedDate;
+    
+    @Column(name = "request_changes")
+    private Boolean requestChanges = false;
+    
+    @ManyToOne
+    @JoinColumn(name = "last_reviewed_by")
+    private User lastReviewedBy;
+    
+    @Column(name = "last_reviewed_date")
+    private LocalDateTime lastReviewedDate;
+    
+    @Column(name = "resubmitted_date")
+    private LocalDateTime resubmittedDate;
+    
+    @CreationTimestamp
+    @Column(name = "created_date", updatable = false)
+    private LocalDateTime createdDate;
+    
+    @UpdateTimestamp
+    @Column(name = "last_modified_date")
+    private LocalDateTime lastModifiedDate;
+}
+package com.project.performanceTrack.entity;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+// Feedback entity - stores feedback on goals/reviews
+@Entity
+@Table(name = "feedback")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class Feedback {
+    
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "feedback_id")
+    private Integer feedbackId;
+    
+    @ManyToOne
+    @JoinColumn(name = "review_id")
+    private PerformanceReview review;
+    
+    @ManyToOne
+    @JoinColumn(name = "goal_id")
+    private Goal goal;
+    
+    @ManyToOne
+    @JoinColumn(name = "given_by_user_id", nullable = false)
+    private User givenByUser;
+    
+    @Column(columnDefinition = "TEXT")
+    private String comments;
+    
+    @Column(name = "feedback_type", length = 50)
+    private String feedbackType;
+    
+    @Column(nullable = false)
+    private LocalDateTime date;
+}
+package com.project.performanceTrack.entity;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+// Audit log entity - tracks all system actions
+@Entity
+@Table(name = "audit_logs")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class AuditLog {
+    
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "audit_id")
+    private Integer auditId;
+    
+    @ManyToOne
+    @JoinColumn(name = "user_id")
+    private User user;
+    
+    @Column(nullable = false, length = 100)
+    private String action;
+    
+    @Column(columnDefinition = "TEXT")
+    private String details;
+    
+    @Column(name = "related_entity_type", length = 50)
+    private String relatedEntityType;
+    
+    @Column(name = "related_entity_id")
+    private Integer relatedEntityId;
+    
+    @Column(name = "ip_address", length = 45)
+    private String ipAddress;
+    
+    @Column(length = 20)
+    private String status;
+    
+    @Column(nullable = false)
+    private LocalDateTime timestamp;
+}

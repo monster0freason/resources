@@ -1,0 +1,2972 @@
+config[
+
+package com.project.performanceTrack.config;
+
+import com.project.performanceTrack.security.JwtAuthFilter;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+// Security configuration for JWT authentication
+@Configuration
+@EnableWebSecurity
+@EnableMethodSecurity
+public class SecurityConfig {
+    
+    @Autowired
+    private JwtAuthFilter jwtAuthFilter;
+    
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+    
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+            .csrf(csrf -> csrf.disable())
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/api/v1/auth/**").permitAll()
+                .requestMatchers("/api/v1/users/**").hasAnyRole("ADMIN", "MANAGER")
+                .requestMatchers("/api/v1/review-cycles/**").hasRole("ADMIN")
+                .requestMatchers("/api/v1/audit-logs/**").hasRole("ADMIN")
+                .anyRequest().authenticated()
+            )
+            .sessionManagement(session -> session
+                .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+            )
+            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+        
+        return http.build();
+    }
+}
+
+]
+
+controllers[
+package com.project.performanceTrack.controller;
+
+import com.project.performanceTrack.dto.ApiResponse;
+import com.project.performanceTrack.entity.AuditLog;
+import com.project.performanceTrack.repository.AuditLogRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+
+// Audit log controller (Admin only)
+@RestController
+@RequestMapping("/api/v1/audit-logs")
+@PreAuthorize("hasRole('ADMIN')")
+public class AuditLogController {
+    
+    @Autowired
+    private AuditLogRepository auditRepo;
+    
+    // Get audit logs with filters
+    @GetMapping
+    public ApiResponse<List<AuditLog>> getAuditLogs(
+            @RequestParam(required = false) Integer userId,
+            @RequestParam(required = false) String action,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDt,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDt) {
+        
+        List<AuditLog> logs;
+        
+        if (userId != null) {
+            logs = auditRepo.findByUser_UserIdOrderByTimestampDesc(userId);
+        } else if (action != null) {
+            logs = auditRepo.findByActionOrderByTimestampDesc(action);
+        } else if (startDt != null && endDt != null) {
+            logs = auditRepo.findByTimestampBetweenOrderByTimestampDesc(startDt, endDt);
+        } else {
+            logs = auditRepo.findAll();
+        }
+        
+        return ApiResponse.success("Audit logs retrieved", logs);
+    }
+    
+    // Export audit logs
+    @PostMapping("/export")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<String> exportLogs(@RequestBody Map<String, String> body) {
+        String format = body.getOrDefault("format", "CSV");
+        String filePath = "/exports/audit_logs_" + System.currentTimeMillis() + "." + format.toLowerCase();
+        // In real implementation, this would generate actual file
+        return ApiResponse.success("Audit logs export initiated", filePath);
+    }
+}
+
+package com.project.performanceTrack.controller;
+
+import com.project.performanceTrack.dto.ApiResponse;
+import com.project.performanceTrack.dto.LoginRequest;
+import com.project.performanceTrack.dto.LoginResponse;
+import com.project.performanceTrack.service.AuthService;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+// Authentication controller - handles login/logout
+@RestController
+@RequestMapping("/api/v1/auth")
+public class AuthController {
+    
+    @Autowired
+    private AuthService authSvc;
+    
+    // Login endpoint
+    @PostMapping("/login")
+    public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest req) {
+        LoginResponse resp = authSvc.login(req);
+        return ApiResponse.success("Login successful", resp);
+    }
+    
+    // Logout endpoint
+    @PostMapping("/logout")
+    public ApiResponse<Void> logout(HttpServletRequest req) {
+        Integer userId = (Integer) req.getAttribute("userId");
+        authSvc.logout(userId);
+        return ApiResponse.success("Logout successful");
+    }
+    
+    // Change password endpoint
+    @PutMapping("/change-password")
+    public ApiResponse<Void> changePassword(@RequestBody Map<String, String> body,
+                                            HttpServletRequest req) {
+        Integer userId = (Integer) req.getAttribute("userId");
+        String oldPwd = body.get("oldPassword");
+        String newPwd = body.get("newPassword");
+        authSvc.changePassword(userId, oldPwd, newPwd);
+        return ApiResponse.success("Password changed successfully");
+    }
+}
+
+package com.project.performanceTrack.controller;
+
+import com.project.performanceTrack.dto.ApiResponse;
+import com.project.performanceTrack.entity.Feedback;
+import com.project.performanceTrack.entity.Goal;
+import com.project.performanceTrack.entity.PerformanceReview;
+import com.project.performanceTrack.entity.User;
+import com.project.performanceTrack.repository.FeedbackRepository;
+import com.project.performanceTrack.repository.GoalRepository;
+import com.project.performanceTrack.repository.PerformanceReviewRepository;
+import com.project.performanceTrack.repository.UserRepository;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+
+// Feedback controller
+@RestController
+@RequestMapping("/api/v1/feedback")
+public class FeedbackController {
+    
+    @Autowired
+    private FeedbackRepository fbRepo;
+    
+    @Autowired
+    private GoalRepository goalRepo;
+    
+    @Autowired
+    private PerformanceReviewRepository reviewRepo;
+    
+    @Autowired
+    private UserRepository userRepo;
+    
+    // Get feedback with filters
+    @GetMapping
+    public ApiResponse<List<Feedback>> getFeedback(@RequestParam(required = false) Integer goalId,
+                                                    @RequestParam(required = false) Integer reviewId) {
+        List<Feedback> feedback;
+        if (goalId != null) {
+            feedback = fbRepo.findByGoal_GoalId(goalId);
+        } else if (reviewId != null) {
+            feedback = fbRepo.findByReview_ReviewId(reviewId);
+        } else {
+            feedback = fbRepo.findAll();
+        }
+        return ApiResponse.success("Feedback retrieved", feedback);
+    }
+    
+    // Create feedback
+    @PostMapping
+    public ApiResponse<Feedback> createFeedback(@RequestBody Map<String, Object> body,
+                                                HttpServletRequest httpReq) {
+        Integer userId = (Integer) httpReq.getAttribute("userId");
+        User user = userRepo.findById(userId).orElse(null);
+        
+        Feedback fb = new Feedback();
+        fb.setGivenByUser(user);
+        fb.setComments((String) body.get("comments"));
+        fb.setFeedbackType((String) body.get("feedbackType"));
+        fb.setDate(LocalDateTime.now());
+        
+        // Link to goal or review if provided
+        if (body.get("goalId") != null) {
+            Integer goalId = (Integer) body.get("goalId");
+            Goal goal = goalRepo.findById(goalId).orElse(null);
+            fb.setGoal(goal);
+        }
+        
+        if (body.get("reviewId") != null) {
+            Integer reviewId = (Integer) body.get("reviewId");
+            PerformanceReview review = reviewRepo.findById(reviewId).orElse(null);
+            fb.setReview(review);
+        }
+        
+        Feedback saved = fbRepo.save(fb);
+        return ApiResponse.success("Feedback created", saved);
+    }
+}
+
+
+package com.project.performanceTrack.controller;
+
+import com.project.performanceTrack.dto.ApiResponse;
+import com.project.performanceTrack.dto.ApproveCompletionRequest;
+import com.project.performanceTrack.dto.CreateGoalRequest;
+import com.project.performanceTrack.dto.SubmitCompletionRequest;
+import com.project.performanceTrack.entity.Goal;
+import com.project.performanceTrack.service.GoalService;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
+
+// Goal management controller
+@RestController
+@RequestMapping("/api/v1/goals")
+public class GoalController {
+    
+    @Autowired
+    private GoalService goalSvc;
+    
+    // Create goal (Employee)
+    @PostMapping
+    @PreAuthorize("hasRole('EMPLOYEE')")
+    public ApiResponse<Goal> createGoal(@Valid @RequestBody CreateGoalRequest req,
+                                        HttpServletRequest httpReq) {
+        Integer empId = (Integer) httpReq.getAttribute("userId");
+        Goal goal = goalSvc.createGoal(req, empId);
+        return ApiResponse.success("Goal created", goal);
+    }
+    
+    // Get goals by user (Employee)
+    @GetMapping
+    public ApiResponse<List<Goal>> getGoals(HttpServletRequest httpReq,
+                                            @RequestParam(required = false) Integer userId,
+                                            @RequestParam(required = false) Integer mgrId) {
+        String role = (String) httpReq.getAttribute("userRole");
+        Integer currentUserId = (Integer) httpReq.getAttribute("userId");
+        
+        List<Goal> goals;
+        if (role.equals("EMPLOYEE")) {
+            goals = goalSvc.getGoalsByUser(currentUserId);
+        } else if (role.equals("MANAGER")) {
+            if (userId != null) {
+                goals = goalSvc.getGoalsByUser(userId);
+            } else {
+                goals = goalSvc.getGoalsByManager(currentUserId);
+            }
+        } else {
+            goals = userId != null ? goalSvc.getGoalsByUser(userId) : 
+                    mgrId != null ? goalSvc.getGoalsByManager(mgrId) : 
+                    goalSvc.getGoalsByUser(currentUserId);
+        }
+        
+        return ApiResponse.success("Goals retrieved", goals);
+    }
+    
+    // Get goal by ID
+    @GetMapping("/{goalId}")
+    public ApiResponse<Goal> getGoalById(@PathVariable Integer goalId) {
+        Goal goal = goalSvc.getGoalById(goalId);
+        return ApiResponse.success("Goal retrieved", goal);
+    }
+    
+    // Approve goal (Manager)
+    @PutMapping("/{goalId}/approve")
+    @PreAuthorize("hasRole('MANAGER')")
+    public ApiResponse<Goal> approveGoal(@PathVariable Integer goalId,
+                                         HttpServletRequest httpReq) {
+        Integer mgrId = (Integer) httpReq.getAttribute("userId");
+        Goal goal = goalSvc.approveGoal(goalId, mgrId);
+        return ApiResponse.success("Goal approved", goal);
+    }
+    
+    // Request changes (Manager)
+    @PutMapping("/{goalId}/request-changes")
+    @PreAuthorize("hasRole('MANAGER')")
+    public ApiResponse<Goal> requestChanges(@PathVariable Integer goalId,
+                                            @RequestBody Map<String, String> body,
+                                            HttpServletRequest httpReq) {
+        Integer mgrId = (Integer) httpReq.getAttribute("userId");
+        String comments = body.get("comments");
+        Goal goal = goalSvc.requestChanges(goalId, mgrId, comments);
+        return ApiResponse.success("Change request sent", goal);
+    }
+    
+    // Submit completion (Employee)
+    @PostMapping("/{goalId}/submit-completion")
+    @PreAuthorize("hasRole('EMPLOYEE')")
+    public ApiResponse<Goal> submitCompletion(@PathVariable Integer goalId,
+                                              @Valid @RequestBody SubmitCompletionRequest req,
+                                              HttpServletRequest httpReq) {
+        Integer empId = (Integer) httpReq.getAttribute("userId");
+        Goal goal = goalSvc.submitCompletion(goalId, req, empId);
+        return ApiResponse.success("Completion submitted", goal);
+    }
+    
+    // Approve completion (Manager)
+    @PostMapping("/{goalId}/approve-completion")
+    @PreAuthorize("hasRole('MANAGER')")
+    public ApiResponse<Goal> approveCompletion(@PathVariable Integer goalId,
+                                               @RequestBody ApproveCompletionRequest req,
+                                               HttpServletRequest httpReq) {
+        Integer mgrId = (Integer) httpReq.getAttribute("userId");
+        Goal goal = goalSvc.approveCompletion(goalId, req, mgrId);
+        return ApiResponse.success("Completion approved", goal);
+    }
+    
+    // Request additional evidence (Manager)
+    @PostMapping("/{goalId}/request-additional-evidence")
+    @PreAuthorize("hasRole('MANAGER')")
+    public ApiResponse<Goal> requestEvidence(@PathVariable Integer goalId,
+                                             @RequestBody Map<String, String> body,
+                                             HttpServletRequest httpReq) {
+        Integer mgrId = (Integer) httpReq.getAttribute("userId");
+        String reason = body.get("reason");
+        Goal goal = goalSvc.requestAdditionalEvidence(goalId, mgrId, reason);
+        return ApiResponse.success("Additional evidence requested", goal);
+    }
+    
+    // Update goal (Employee - only when changes requested)
+    @PutMapping("/{goalId}")
+    @PreAuthorize("hasRole('EMPLOYEE')")
+    public ApiResponse<Goal> updateGoal(@PathVariable Integer goalId,
+                                        @Valid @RequestBody CreateGoalRequest req,
+                                        HttpServletRequest httpReq) {
+        Integer empId = (Integer) httpReq.getAttribute("userId");
+        Goal goal = goalSvc.updateGoal(goalId, req, empId);
+        return ApiResponse.success("Goal updated", goal);
+    }
+    
+    // Delete goal (soft delete)
+    @DeleteMapping("/{goalId}")
+    public ApiResponse<Void> deleteGoal(@PathVariable Integer goalId,
+                                        HttpServletRequest httpReq) {
+        Integer userId = (Integer) httpReq.getAttribute("userId");
+        String role = (String) httpReq.getAttribute("userRole");
+        goalSvc.deleteGoal(goalId, userId, role);
+        return ApiResponse.success("Goal deleted");
+    }
+    
+    // Verify evidence (Manager)
+    @PutMapping("/{goalId}/evidence/verify")
+    @PreAuthorize("hasRole('MANAGER')")
+    public ApiResponse<Goal> verifyEvidence(@PathVariable Integer goalId,
+                                            @RequestBody Map<String, String> body,
+                                            HttpServletRequest httpReq) {
+        Integer mgrId = (Integer) httpReq.getAttribute("userId");
+        String status = body.get("status");
+        String notes = body.get("notes");
+        Goal goal = goalSvc.verifyEvidence(goalId, mgrId, status, notes);
+        return ApiResponse.success("Evidence verified", goal);
+    }
+    
+    // Reject goal completion (Manager)
+    @PostMapping("/{goalId}/reject-completion")
+    @PreAuthorize("hasRole('MANAGER')")
+    public ApiResponse<Goal> rejectCompletion(@PathVariable Integer goalId,
+                                              @RequestBody Map<String, String> body,
+                                              HttpServletRequest httpReq) {
+        Integer mgrId = (Integer) httpReq.getAttribute("userId");
+        String reason = body.get("reason");
+        Goal goal = goalSvc.rejectCompletion(goalId, mgrId, reason);
+        return ApiResponse.success("Goal completion rejected", goal);
+    }
+    
+    // Add progress update (Employee)
+    @PostMapping("/{goalId}/progress")
+    @PreAuthorize("hasRole('EMPLOYEE')")
+    public ApiResponse<Void> addProgress(@PathVariable Integer goalId,
+                                         @RequestBody Map<String, String> body,
+                                         HttpServletRequest httpReq) {
+        Integer empId = (Integer) httpReq.getAttribute("userId");
+        String progressNote = body.get("note");
+        goalSvc.addProgressUpdate(goalId, empId, progressNote);
+        return ApiResponse.success("Progress added");
+    }
+    
+    // Get progress updates
+    @GetMapping("/{goalId}/progress")
+    public ApiResponse<String> getProgress(@PathVariable Integer goalId) {
+        String progress = goalSvc.getProgressUpdates(goalId);
+        return ApiResponse.success("Progress retrieved", progress);
+    }
+}
+
+package com.project.performanceTrack.controller;
+
+import com.project.performanceTrack.dto.ApiResponse;
+import com.project.performanceTrack.entity.Notification;
+import com.project.performanceTrack.enums.NotificationStatus;
+import com.project.performanceTrack.exception.ResourceNotFoundException;
+import com.project.performanceTrack.repository.NotificationRepository;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+// Notification controller
+@RestController
+@RequestMapping("/api/v1/notifications")
+public class NotificationController {
+    
+    @Autowired
+    private NotificationRepository notifRepo;
+    
+    // Get notifications for current user
+    @GetMapping
+    public ApiResponse<List<Notification>> getNotifications(HttpServletRequest httpReq,
+                                                             @RequestParam(required = false) String status) {
+        Integer userId = (Integer) httpReq.getAttribute("userId");
+        
+        List<Notification> notifs;
+        if (status != null) {
+            NotificationStatus notifStatus = NotificationStatus.valueOf(status.toUpperCase());
+            notifs = notifRepo.findByUser_UserIdAndStatusOrderByCreatedDateDesc(userId, notifStatus);
+        } else {
+            notifs = notifRepo.findByUser_UserIdOrderByCreatedDateDesc(userId);
+        }
+        
+        return ApiResponse.success("Notifications retrieved", notifs);
+    }
+    
+    // Mark notification as read
+    @PutMapping("/{notifId}")
+    public ApiResponse<Notification> markAsRead(@PathVariable Integer notifId) {
+        Notification notif = notifRepo.findById(notifId)
+                .orElseThrow(() -> new ResourceNotFoundException("Notification not found"));
+        
+        notif.setStatus(NotificationStatus.READ);
+        notif.setReadDate(LocalDateTime.now());
+        Notification updated = notifRepo.save(notif);
+        
+        return ApiResponse.success("Notification marked as read", updated);
+    }
+    
+    // Mark all notifications as read
+    @PutMapping("/mark-all-read")
+    public ApiResponse<Void> markAllAsRead(HttpServletRequest httpReq) {
+        Integer userId = (Integer) httpReq.getAttribute("userId");
+        
+        List<Notification> notifs = notifRepo
+                .findByUser_UserIdAndStatusOrderByCreatedDateDesc(userId, NotificationStatus.UNREAD);
+        
+        notifs.forEach(n -> {
+            n.setStatus(NotificationStatus.READ);
+            n.setReadDate(LocalDateTime.now());
+        });
+        
+        notifRepo.saveAll(notifs);
+        
+        return ApiResponse.success("All notifications marked as read");
+    }
+}
+
+package com.project.performanceTrack.controller;
+
+import com.project.performanceTrack.dto.ApiResponse;
+import com.project.performanceTrack.dto.ManagerReviewRequest;
+import com.project.performanceTrack.dto.SelfAssessmentRequest;
+import com.project.performanceTrack.entity.PerformanceReview;
+import com.project.performanceTrack.service.PerformanceReviewService;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
+
+// Performance review controller
+@RestController
+@RequestMapping("/api/v1/performance-reviews")
+public class PerformanceReviewController {
+    
+    @Autowired
+    private PerformanceReviewService reviewSvc;
+    
+    // Get reviews
+    @GetMapping
+    public ApiResponse<List<PerformanceReview>> getReviews(HttpServletRequest httpReq,
+                                                            @RequestParam(required = false) Integer userId,
+                                                            @RequestParam(required = false) Integer cycleId) {
+        String role = (String) httpReq.getAttribute("userRole");
+        Integer currentUserId = (Integer) httpReq.getAttribute("userId");
+        
+        List<PerformanceReview> reviews;
+        if (cycleId != null) {
+            reviews = reviewSvc.getReviewsByCycle(cycleId);
+        } else if (userId != null && role.equals("ADMIN")) {
+            reviews = reviewSvc.getReviewsByUser(userId);
+        } else {
+            reviews = reviewSvc.getReviewsByUser(currentUserId);
+        }
+        
+        return ApiResponse.success("Reviews retrieved", reviews);
+    }
+    
+    // Get review by ID
+    @GetMapping("/{reviewId}")
+    public ApiResponse<PerformanceReview> getReviewById(@PathVariable Integer reviewId) {
+        PerformanceReview review = reviewSvc.getReviewById(reviewId);
+        return ApiResponse.success("Review retrieved", review);
+    }
+    
+    // Submit self-assessment (Employee)
+    @PostMapping
+    @PreAuthorize("hasRole('EMPLOYEE')")
+    public ApiResponse<PerformanceReview> submitSelfAssessment(@Valid @RequestBody SelfAssessmentRequest req,
+                                                                HttpServletRequest httpReq) {
+        Integer empId = (Integer) httpReq.getAttribute("userId");
+        PerformanceReview review = reviewSvc.submitSelfAssessment(req, empId);
+        return ApiResponse.success("Self-assessment submitted", review);
+    }
+    
+    // Update self-assessment draft (Employee)
+    @PutMapping("/{reviewId}/draft")
+    @PreAuthorize("hasRole('EMPLOYEE')")
+    public ApiResponse<PerformanceReview> updateDraft(@PathVariable Integer reviewId,
+                                                       @Valid @RequestBody SelfAssessmentRequest req,
+                                                       HttpServletRequest httpReq) {
+        Integer empId = (Integer) httpReq.getAttribute("userId");
+        PerformanceReview review = reviewSvc.updateSelfAssessmentDraft(reviewId, req, empId);
+        return ApiResponse.success("Draft updated", review);
+    }
+    
+    // Submit manager review (Manager)
+    @PutMapping("/{reviewId}")
+    @PreAuthorize("hasRole('MANAGER')")
+    public ApiResponse<PerformanceReview> submitManagerReview(@PathVariable Integer reviewId,
+                                                               @Valid @RequestBody ManagerReviewRequest req,
+                                                               HttpServletRequest httpReq) {
+        Integer mgrId = (Integer) httpReq.getAttribute("userId");
+        PerformanceReview review = reviewSvc.submitManagerReview(reviewId, req, mgrId);
+        return ApiResponse.success("Manager review submitted", review);
+    }
+    
+    // Acknowledge review (Employee)
+    @PostMapping("/{reviewId}/acknowledge")
+    @PreAuthorize("hasRole('EMPLOYEE')")
+    public ApiResponse<PerformanceReview> acknowledgeReview(@PathVariable Integer reviewId,
+                                                             @RequestBody Map<String, String> body,
+                                                             HttpServletRequest httpReq) {
+        Integer empId = (Integer) httpReq.getAttribute("userId");
+        String response = body.get("response");
+        PerformanceReview review = reviewSvc.acknowledgeReview(reviewId, empId, response);
+        return ApiResponse.success("Review acknowledged", review);
+    }
+}
+
+package com.project.performanceTrack.controller;
+
+import com.project.performanceTrack.dto.ApiResponse;
+import com.project.performanceTrack.entity.Report;
+import com.project.performanceTrack.service.ReportService;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
+
+// Report controller (Admin/Manager)
+@RestController
+@RequestMapping("/api/v1/reports")
+@PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+public class ReportController {
+    
+    @Autowired
+    private ReportService reportSvc;
+    
+    // Get all reports
+    @GetMapping
+    public ApiResponse<List<Report>> getAllReports() {
+        List<Report> reports = reportSvc.getAllReports();
+        return ApiResponse.success("Reports retrieved", reports);
+    }
+    
+    // Get report by ID
+    @GetMapping("/{reportId}")
+    public ApiResponse<Report> getReportById(@PathVariable Integer reportId) {
+        Report report = reportSvc.getReportById(reportId);
+        return ApiResponse.success("Report retrieved", report);
+    }
+    
+    // Generate report
+    @PostMapping("/generate")
+    public ApiResponse<Report> generateReport(@RequestBody Map<String, String> body,
+                                               HttpServletRequest httpReq) {
+        Integer userId = (Integer) httpReq.getAttribute("userId");
+        String scope = body.get("scope");
+        String metrics = body.get("metrics");
+        String format = body.getOrDefault("format", "PDF");
+        
+        Report report = reportSvc.generateReport(scope, metrics, format, userId);
+        return ApiResponse.success("Report generated", report);
+    }
+    
+    // Get dashboard metrics
+    @GetMapping("/dashboard")
+    public ApiResponse<Map<String, Object>> getDashboard(HttpServletRequest httpReq) {
+        String role = (String) httpReq.getAttribute("userRole");
+        Integer userId = (Integer) httpReq.getAttribute("userId");
+        Map<String, Object> metrics = reportSvc.getDashboardMetrics(userId, role);
+        return ApiResponse.success("Dashboard metrics retrieved", metrics);
+    }
+    
+    // Get performance summary
+    @GetMapping("/performance-summary")
+    public ApiResponse<Map<String, Object>> getPerformanceSummary(
+            @RequestParam(required = false) Integer cycleId,
+            @RequestParam(required = false) String dept) {
+        Map<String, Object> summary = reportSvc.getPerformanceSummary(cycleId, dept);
+        return ApiResponse.success("Performance summary retrieved", summary);
+    }
+    
+    // Get goal analytics
+    @GetMapping("/goal-analytics")
+    public ApiResponse<Map<String, Object>> getGoalAnalytics() {
+        Map<String, Object> analytics = reportSvc.getGoalAnalytics();
+        return ApiResponse.success("Goal analytics retrieved", analytics);
+    }
+    
+    // Get department performance
+    @GetMapping("/department-performance")
+    public ApiResponse<List<Map<String, Object>>> getDeptPerformance() {
+        List<Map<String, Object>> performance = reportSvc.getDepartmentPerformance();
+        return ApiResponse.success("Department performance retrieved", performance);
+    }
+}
+
+package com.project.performanceTrack.controller;
+
+import com.project.performanceTrack.dto.ApiResponse;
+import com.project.performanceTrack.dto.CreateReviewCycleRequest;
+import com.project.performanceTrack.entity.ReviewCycle;
+import com.project.performanceTrack.service.ReviewCycleService;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+// Review cycle controller
+@RestController
+@RequestMapping("/api/v1/review-cycles")
+public class ReviewCycleController {
+    
+    @Autowired
+    private ReviewCycleService cycleSvc;
+    
+    // Get all review cycles
+    @GetMapping
+    public ApiResponse<List<ReviewCycle>> getAllCycles() {
+        List<ReviewCycle> cycles = cycleSvc.getAllCycles();
+        return ApiResponse.success("Review cycles retrieved", cycles);
+    }
+    
+    // Get cycle by ID
+    @GetMapping("/{cycleId}")
+    public ApiResponse<ReviewCycle> getCycleById(@PathVariable Integer cycleId) {
+        ReviewCycle cycle = cycleSvc.getCycleById(cycleId);
+        return ApiResponse.success("Review cycle retrieved", cycle);
+    }
+    
+    // Get active cycle
+    @GetMapping("/active")
+    public ApiResponse<ReviewCycle> getActiveCycle() {
+        ReviewCycle cycle = cycleSvc.getActiveCycle();
+        return ApiResponse.success("Active cycle retrieved", cycle);
+    }
+    
+    // Create review cycle (Admin)
+    @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<ReviewCycle> createCycle(@Valid @RequestBody CreateReviewCycleRequest req,
+                                                HttpServletRequest httpReq) {
+        Integer adminId = (Integer) httpReq.getAttribute("userId");
+        ReviewCycle cycle = cycleSvc.createCycle(req, adminId);
+        return ApiResponse.success("Review cycle created", cycle);
+    }
+    
+    // Update review cycle (Admin)
+    @PutMapping("/{cycleId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<ReviewCycle> updateCycle(@PathVariable Integer cycleId,
+                                                @Valid @RequestBody CreateReviewCycleRequest req,
+                                                HttpServletRequest httpReq) {
+        Integer adminId = (Integer) httpReq.getAttribute("userId");
+        ReviewCycle cycle = cycleSvc.updateCycle(cycleId, req, adminId);
+        return ApiResponse.success("Review cycle updated", cycle);
+    }
+}
+
+package com.project.performanceTrack.controller;
+
+import com.project.performanceTrack.dto.ApiResponse;
+import com.project.performanceTrack.dto.CreateUserRequest;
+import com.project.performanceTrack.entity.User;
+import com.project.performanceTrack.service.UserService;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+// User management controller
+@RestController
+@RequestMapping("/api/v1/users")
+public class UserController {
+    
+    @Autowired
+    private UserService userSvc;
+    
+    // Get all users (Admin/Manager)
+    @GetMapping
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ApiResponse<List<User>> getAllUsers() {
+        List<User> users = userSvc.getAllUsers();
+        return ApiResponse.success("Users retrieved", users);
+    }
+    
+    // Get user by ID
+    @GetMapping("/{userId}")
+    public ApiResponse<User> getUserById(@PathVariable Integer userId) {
+        User user = userSvc.getUserById(userId);
+        return ApiResponse.success("User retrieved", user);
+    }
+    
+    // Create new user (Admin only)
+    @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<User> createUser(@Valid @RequestBody CreateUserRequest req, 
+                                        HttpServletRequest httpReq) {
+        Integer adminId = (Integer) httpReq.getAttribute("userId");
+        User user = userSvc.createUser(req, adminId);
+        return ApiResponse.success("User created", user);
+    }
+    
+    // Update user (Admin only)
+    @PutMapping("/{userId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<User> updateUser(@PathVariable Integer userId,
+                                        @Valid @RequestBody CreateUserRequest req,
+                                        HttpServletRequest httpReq) {
+        Integer adminId = (Integer) httpReq.getAttribute("userId");
+        User user = userSvc.updateUser(userId, req, adminId);
+        return ApiResponse.success("User updated", user);
+    }
+    
+    // Get team members (Manager)
+    @GetMapping("/{userId}/team")
+    @PreAuthorize("hasRole('MANAGER')")
+    public ApiResponse<List<User>> getTeam(@PathVariable Integer userId) {
+        List<User> team = userSvc.getTeamMembers(userId);
+        return ApiResponse.success("Team members retrieved", team);
+    }
+}
+
+
+]
+
+dto[
+package com.project.performanceTrack.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+// Standard API response wrapper
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class ApiResponse<T> {
+    private String status;  // "success" or "error"
+    private String msg;     // Message
+    private T data;         // Response data
+    
+    // Success response
+    public static <T> ApiResponse<T> success(String msg, T data) {
+        return new ApiResponse<>("success", msg, data);
+    }
+    
+    // Success response without data
+    public static <T> ApiResponse<T> success(String msg) {
+        return new ApiResponse<>("success", msg, null);
+    }
+    
+    // Error response
+    public static <T> ApiResponse<T> error(String msg) {
+        return new ApiResponse<>("error", msg, null);
+    }
+}
+package com.project.performanceTrack.dto;
+
+import lombok.Data;
+
+// Approve goal completion request DTO
+@Data
+public class ApproveCompletionRequest {
+    
+    private String mgrComments;  // Manager comments on completion
+}
+package com.project.performanceTrack.dto;
+
+import com.project.performanceTrack.enums.GoalCategory;
+import com.project.performanceTrack.enums.GoalPriority;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import lombok.Data;
+
+import java.time.LocalDate;
+
+// Create goal request DTO
+@Data
+public class CreateGoalRequest {
+    
+    @NotBlank(message = "Title is required")
+    private String title;
+    
+    @NotBlank(message = "Description is required")
+    private String desc;
+    
+    @NotNull(message = "Category is required")
+    private GoalCategory cat;
+    
+    @NotNull(message = "Priority is required")
+    private GoalPriority pri;
+    
+    @NotNull(message = "Start date is required")
+    private LocalDate startDt;
+    
+    @NotNull(message = "End date is required")
+    private LocalDate endDt;
+    
+    @NotNull(message = "Manager ID is required")
+    private Integer mgrId;
+}
+package com.project.performanceTrack.dto;
+
+import com.project.performanceTrack.enums.ReviewCycleStatus;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import lombok.Data;
+
+import java.time.LocalDate;
+
+// Create review cycle request DTO
+@Data
+public class CreateReviewCycleRequest {
+    
+    @NotBlank(message = "Title is required")
+    private String title;
+    
+    @NotNull(message = "Start date is required")
+    private LocalDate startDt;
+    
+    @NotNull(message = "End date is required")
+    private LocalDate endDt;
+    
+    @NotNull(message = "Status is required")
+    private ReviewCycleStatus status;
+    
+    private Boolean reqCompAppr = true;  // Requires completion approval
+    
+    private Boolean evReq = true;        // Evidence required
+}
+package com.project.performanceTrack.dto;
+
+import com.project.performanceTrack.enums.UserRole;
+import com.project.performanceTrack.enums.UserStatus;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import lombok.Data;
+
+// Create user request DTO
+@Data
+public class CreateUserRequest {
+    
+    @NotBlank(message = "Name is required")
+    private String name;
+    
+    @NotBlank(message = "Email is required")
+    @Email(message = "Email must be valid")
+    private String email;
+    
+    @NotBlank(message = "Password is required")
+    private String password;
+    
+    @NotNull(message = "Role is required")
+    private UserRole role;
+    
+    private String dept;
+    
+    private Integer mgrId;  // Manager ID
+    
+    private UserStatus status = UserStatus.ACTIVE;
+}
+package com.project.performanceTrack.dto;
+
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import lombok.Data;
+
+// Login request DTO
+@Data
+public class LoginRequest {
+    
+    @NotBlank(message = "Email is required")
+    @Email(message = "Email must be valid")
+    private String email;
+    
+    @NotBlank(message = "Password is required")
+    private String password;
+}
+package com.project.performanceTrack.dto;
+
+import com.project.performanceTrack.enums.UserRole;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+// Login response DTO
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class LoginResponse {
+    private String token;       // JWT token
+    private Integer userId;
+    private String name;
+    private String email;
+    private UserRole role;
+    private String department;
+}
+package com.project.performanceTrack.dto;
+
+import jakarta.validation.constraints.NotNull;
+import lombok.Data;
+
+// Manager review request DTO
+@Data
+public class ManagerReviewRequest {
+    
+    @NotNull(message = "Manager feedback is required")
+    private String mgrFb;  // JSON string with manager feedback
+    
+    @NotNull(message = "Manager rating is required")
+    private Integer mgrRating;
+    
+    private String ratingJust;  // Rating justification
+    
+    private String compRec;     // Compensation recommendations (JSON)
+    
+    private String nextGoals;   // Next period goals
+}
+
+package com.project.performanceTrack.dto;
+
+import jakarta.validation.constraints.NotNull;
+import lombok.Data;
+
+// Self-assessment request DTO
+@Data
+public class SelfAssessmentRequest {
+    
+    @NotNull(message = "Cycle ID is required")
+    private Integer cycleId;
+    
+    @NotNull(message = "Self-assessment data is required")
+    private String selfAssmt;  // JSON string with all sections
+    
+    @NotNull(message = "Self-rating is required")
+    private Integer selfRating;
+}
+
+package com.project.performanceTrack.dto;
+
+import jakarta.validation.constraints.NotNull;
+import lombok.Data;
+
+// Self-assessment request DTO
+@Data
+public class SelfAssessmentRequest {
+    
+    @NotNull(message = "Cycle ID is required")
+    private Integer cycleId;
+    
+    @NotNull(message = "Self-assessment data is required")
+    private String selfAssmt;  // JSON string with all sections
+    
+    @NotNull(message = "Self-rating is required")
+    private Integer selfRating;
+}
+
+]
+
+
+exception[
+
+package com.project.performanceTrack.exception;
+
+// Custom exception for bad requests
+public class BadRequestException extends RuntimeException {
+    public BadRequestException(String message) {
+        super(message);
+    }
+}
+
+package com.project.performanceTrack.exception;
+
+import com.project.performanceTrack.dto.ApiResponse;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.util.HashMap;
+import java.util.Map;
+
+// Global exception handler for centralized error handling
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+    
+    // Handle resource not found
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ApiResponse<Object>> handleNotFound(ResourceNotFoundException ex) {
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(ex.getMessage()));
+    }
+    
+    // Handle unauthorized access
+    @ExceptionHandler(UnauthorizedException.class)
+    public ResponseEntity<ApiResponse<Object>> handleUnauthorized(UnauthorizedException ex) {
+        return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.error(ex.getMessage()));
+    }
+    
+    // Handle bad requests
+    @ExceptionHandler(BadRequestException.class)
+    public ResponseEntity<ApiResponse<Object>> handleBadRequest(BadRequestException ex) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(ex.getMessage()));
+    }
+    
+    // Handle validation errors
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ApiResponse<Object>> handleValidation(MethodArgumentNotValidException ex) {
+        Map<String, String> errors = new HashMap<>();
+        ex.getBindingResult().getAllErrors().forEach(error -> {
+            String fieldName = ((FieldError) error).getField();
+            String errorMsg = error.getDefaultMessage();
+            errors.put(fieldName, errorMsg);
+        });
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error("Validation failed: " + errors));
+    }
+    
+    // Handle all other exceptions
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiResponse<Object>> handleGeneral(Exception ex) {
+        return ResponseEntity
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error("An error occurred: " + ex.getMessage()));
+    }
+}
+
+package com.project.performanceTrack.exception;
+
+// Custom exception for resource not found
+public class ResourceNotFoundException extends RuntimeException {
+    public ResourceNotFoundException(String message) {
+        super(message);
+    }
+}
+
+package com.project.performanceTrack.exception;
+
+// Custom exception for unauthorized access
+public class UnauthorizedException extends RuntimeException {
+    public UnauthorizedException(String message) {
+        super(message);
+    }
+}
+
+
+]
+
+repository[
+package com.project.performanceTrack.repository;
+
+import com.project.performanceTrack.entity.AuditLog;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+// Audit log repository for database operations
+@Repository
+public interface AuditLogRepository extends JpaRepository<AuditLog, Integer> {
+    
+    // Find audit logs by user
+    List<AuditLog> findByUser_UserIdOrderByTimestampDesc(Integer userId);
+    
+    // Find audit logs by action
+    List<AuditLog> findByActionOrderByTimestampDesc(String action);
+    
+    // Find audit logs in date range
+    List<AuditLog> findByTimestampBetweenOrderByTimestampDesc(LocalDateTime start, LocalDateTime end);
+}
+
+package com.project.performanceTrack.repository;
+
+import com.project.performanceTrack.entity.Feedback;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+// Feedback repository for database operations
+@Repository
+public interface FeedbackRepository extends JpaRepository<Feedback, Integer> {
+    
+    // Find feedback by goal
+    List<Feedback> findByGoal_GoalId(Integer goalId);
+    
+    // Find feedback by review
+    List<Feedback> findByReview_ReviewId(Integer reviewId);
+}
+package com.project.performanceTrack.repository;
+
+import com.project.performanceTrack.entity.Feedback;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+// Feedback repository for database operations
+@Repository
+public interface FeedbackRepository extends JpaRepository<Feedback, Integer> {
+    
+    // Find feedback by goal
+    List<Feedback> findByGoal_GoalId(Integer goalId);
+    
+    // Find feedback by review
+    List<Feedback> findByReview_ReviewId(Integer reviewId);
+}
+package com.project.performanceTrack.repository;
+
+import com.project.performanceTrack.entity.Feedback;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+// Feedback repository for database operations
+@Repository
+public interface FeedbackRepository extends JpaRepository<Feedback, Integer> {
+    
+    // Find feedback by goal
+    List<Feedback> findByGoal_GoalId(Integer goalId);
+    
+    // Find feedback by review
+    List<Feedback> findByReview_ReviewId(Integer reviewId);
+}
+
+package com.project.performanceTrack.repository;
+
+import com.project.performanceTrack.entity.Notification;
+import com.project.performanceTrack.enums.NotificationStatus;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+// Notification repository for database operations
+@Repository
+public interface NotificationRepository extends JpaRepository<Notification, Integer> {
+    
+    // Find notifications by user
+    List<Notification> findByUser_UserIdOrderByCreatedDateDesc(Integer userId);
+    
+    // Find notifications by user and status
+    List<Notification> findByUser_UserIdAndStatusOrderByCreatedDateDesc(Integer userId, NotificationStatus status);
+}
+
+package com.project.performanceTrack.repository;
+
+import com.project.performanceTrack.entity.PerformanceReviewGoals;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+// Performance review goals linking repository
+@Repository
+public interface PerformanceReviewGoalsRepository extends JpaRepository<PerformanceReviewGoals, Integer> {
+    
+    // Find links by review ID
+    List<PerformanceReviewGoals> findByReview_ReviewId(Integer reviewId);
+    
+    // Find links by goal ID
+    List<PerformanceReviewGoals> findByGoal_GoalId(Integer goalId);
+}
+package com.project.performanceTrack.repository;
+
+import com.project.performanceTrack.entity.PerformanceReview;
+import com.project.performanceTrack.enums.PerformanceReviewStatus;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+import java.util.Optional;
+
+// Performance review repository for database operations
+@Repository
+public interface PerformanceReviewRepository extends JpaRepository<PerformanceReview, Integer> {
+    
+    // Find reviews by user
+    List<PerformanceReview> findByUser_UserId(Integer userId);
+    
+    // Find reviews by cycle
+    List<PerformanceReview> findByCycle_CycleId(Integer cycleId);
+    
+    // Find reviews by status
+    List<PerformanceReview> findByStatus(PerformanceReviewStatus status);
+    
+    // Find review by cycle and user
+    Optional<PerformanceReview> findByCycle_CycleIdAndUser_UserId(Integer cycleId, Integer userId);
+}
+
+package com.project.performanceTrack.repository;
+
+import com.project.performanceTrack.entity.Report;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+// Report repository
+@Repository
+public interface ReportRepository extends JpaRepository<Report, Integer> {
+    
+    // Find reports by scope
+    List<Report> findByScope(String scope);
+    
+    // Find reports by generated user
+    List<Report> findByGeneratedBy_UserIdOrderByGeneratedDateDesc(Integer userId);
+}
+package com.project.performanceTrack.repository;
+
+import com.project.performanceTrack.entity.ReviewCycle;
+import com.project.performanceTrack.enums.ReviewCycleStatus;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+import java.util.Optional;
+
+// Review cycle repository for database operations
+@Repository
+public interface ReviewCycleRepository extends JpaRepository<ReviewCycle, Integer> {
+    
+    // Find review cycles by status
+    List<ReviewCycle> findByStatus(ReviewCycleStatus status);
+    
+    // Find first active review cycle
+    Optional<ReviewCycle> findFirstByStatusOrderByStartDateDesc(ReviewCycleStatus status);
+}
+package com.project.performanceTrack.repository;
+
+import com.project.performanceTrack.entity.User;
+import com.project.performanceTrack.enums.UserRole;
+import com.project.performanceTrack.enums.UserStatus;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+import java.util.Optional;
+
+// User repository for database operations
+@Repository
+public interface UserRepository extends JpaRepository<User, Integer> {
+    
+    // Find user by email
+    Optional<User> findByEmail(String email);
+    
+    // Find users by role
+    List<User> findByRole(UserRole role);
+    
+    // Find users by department
+    List<User> findByDepartment(String department);
+    
+    // Find users by status
+    List<User> findByStatus(UserStatus status);
+    
+    // Find team members by manager ID
+    List<User> findByManager_UserId(Integer managerId);
+}
+
+
+]
+
+
+security[
+package com.project.performanceTrack.security;
+
+import com.project.performanceTrack.util.JwtUtil;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+import java.util.Collections;
+
+// JWT authentication filter - validates token on each request
+@Component
+public class JwtAuthFilter extends OncePerRequestFilter {
+    
+    @Autowired
+    private JwtUtil jwtUtil;
+    
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, 
+                                    HttpServletResponse response, 
+                                    FilterChain filterChain) throws ServletException, IOException {
+        
+        String authHeader = request.getHeader("Authorization");
+        String token = null;
+        String email = null;
+        
+        // Extract token from Authorization header
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            token = authHeader.substring(7);
+            try {
+                email = jwtUtil.extractEmail(token);
+            } catch (Exception e) {
+                // Invalid token, continue without authentication
+            }
+        }
+        
+        // Validate token and set authentication
+        if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+            if (jwtUtil.validateToken(token, email)) {
+                String role = jwtUtil.extractRole(token);
+                Integer userId = jwtUtil.extractUserId(token);
+                
+                // Create authentication with role
+                UsernamePasswordAuthenticationToken authToken = 
+                    new UsernamePasswordAuthenticationToken(
+                        email, 
+                        null, 
+                        Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + role))
+                    );
+                authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                
+                // Store userId in authentication details for easy access
+                SecurityContextHolder.getContext().setAuthentication(authToken);
+                request.setAttribute("userId", userId);
+                request.setAttribute("userRole", role);
+            }
+        }
+        
+        filterChain.doFilter(request, response);
+    }
+}
+
+]
+
+
+services[
+package com.project.performanceTrack.service;
+
+import com.project.performanceTrack.dto.LoginRequest;
+import com.project.performanceTrack.dto.LoginResponse;
+import com.project.performanceTrack.entity.AuditLog;
+import com.project.performanceTrack.entity.User;
+import com.project.performanceTrack.exception.UnauthorizedException;
+import com.project.performanceTrack.repository.AuditLogRepository;
+import com.project.performanceTrack.repository.UserRepository;
+import com.project.performanceTrack.util.JwtUtil;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+
+// Authentication service for login/logout
+@Service
+public class AuthService {
+    
+    @Autowired
+    private UserRepository userRepo;
+    
+    @Autowired
+    private PasswordEncoder pwdEncoder;
+    
+    @Autowired
+    private JwtUtil jwtUtil;
+    
+    @Autowired
+    private AuditLogRepository auditRepo;
+    
+    // User login
+    public LoginResponse login(LoginRequest req) {
+        // Find user by email
+        User user = userRepo.findByEmail(req.getEmail())
+                .orElseThrow(() -> new UnauthorizedException("Invalid email or password"));
+        
+        // Check password
+        if (!pwdEncoder.matches(req.getPassword(), user.getPasswordHash())) {
+            throw new UnauthorizedException("Invalid email or password");
+        }
+        
+        // Check if user is active
+        if (user.getStatus().name().equals("INACTIVE")) {
+            throw new UnauthorizedException("Account is inactive");
+        }
+        
+        // Generate JWT token
+        String token = jwtUtil.generateToken(
+            user.getEmail(), 
+            user.getUserId(), 
+            user.getRole().name()
+        );
+        
+        // Create audit log
+        AuditLog log = new AuditLog();
+        log.setUser(user);
+        log.setAction("LOGIN");
+        log.setDetails("User logged in successfully");
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        // Return login response
+        return new LoginResponse(
+            token,
+            user.getUserId(),
+            user.getName(),
+            user.getEmail(),
+            user.getRole(),
+            user.getDepartment()
+        );
+    }
+    
+    // User logout
+    public void logout(Integer userId) {
+        User user = userRepo.findById(userId).orElse(null);
+        if (user != null) {
+            // Create audit log
+            AuditLog log = new AuditLog();
+            log.setUser(user);
+            log.setAction("LOGOUT");
+            log.setDetails("User logged out");
+            log.setStatus("SUCCESS");
+            log.setTimestamp(LocalDateTime.now());
+            auditRepo.save(log);
+        }
+    }
+    
+    // Change password
+    public void changePassword(Integer userId, String oldPwd, String newPwd) {
+        User user = userRepo.findById(userId)
+                .orElseThrow(() -> new UnauthorizedException("User not found"));
+        
+        // Verify old password
+        if (!pwdEncoder.matches(oldPwd, user.getPasswordHash())) {
+            throw new UnauthorizedException("Current password is incorrect");
+        }
+        
+        // Update password
+        user.setPasswordHash(pwdEncoder.encode(newPwd));
+        userRepo.save(user);
+        
+        // Create audit log
+        AuditLog log = new AuditLog();
+        log.setUser(user);
+        log.setAction("PASSWORD_CHANGED");
+        log.setDetails("User changed password");
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+    }
+}
+package com.project.performanceTrack.service;
+
+import com.project.performanceTrack.dto.ApproveCompletionRequest;
+import com.project.performanceTrack.dto.CreateGoalRequest;
+import com.project.performanceTrack.dto.SubmitCompletionRequest;
+import com.project.performanceTrack.entity.*;
+import com.project.performanceTrack.enums.*;
+import com.project.performanceTrack.exception.BadRequestException;
+import com.project.performanceTrack.exception.ResourceNotFoundException;
+import com.project.performanceTrack.exception.UnauthorizedException;
+import com.project.performanceTrack.repository.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+// Goal management service
+@Service
+public class GoalService {
+    
+    @Autowired
+    private GoalRepository goalRepo;
+    
+    @Autowired
+    private UserRepository userRepo;
+    
+    @Autowired
+    private NotificationRepository notifRepo;
+    
+    @Autowired
+    private AuditLogRepository auditRepo;
+    
+    @Autowired
+    private FeedbackRepository fbRepo;
+    
+    @Autowired
+    private GoalCompletionApprovalRepository approvalRepo;
+    
+    // Create new goal (Employee)
+    public Goal createGoal(CreateGoalRequest req, Integer empId) {
+        // Get employee
+        User emp = userRepo.findById(empId)
+                .orElseThrow(() -> new ResourceNotFoundException("Employee not found"));
+        
+        // Get manager
+        User mgr = userRepo.findById(req.getMgrId())
+                .orElseThrow(() -> new ResourceNotFoundException("Manager not found"));
+        
+        // Validate dates
+        if (req.getEndDt().isBefore(req.getStartDt())) {
+            throw new BadRequestException("End date must be after start date");
+        }
+        
+        // Create goal
+        Goal goal = new Goal();
+        goal.setTitle(req.getTitle());
+        goal.setDescription(req.getDesc());
+        goal.setCategory(req.getCat());
+        goal.setPriority(req.getPri());
+        goal.setAssignedToUser(emp);
+        goal.setAssignedManager(mgr);
+        goal.setStartDate(req.getStartDt());
+        goal.setEndDate(req.getEndDt());
+        goal.setStatus(GoalStatus.PENDING);
+        
+        // Save goal
+        Goal savedGoal = goalRepo.save(goal);
+        
+        // Create notification for manager
+        Notification notif = new Notification();
+        notif.setUser(mgr);
+        notif.setType(NotificationType.GOAL_SUBMITTED);
+        notif.setMessage(emp.getName() + " submitted goal: " + goal.getTitle());
+        notif.setRelatedEntityType("Goal");
+        notif.setRelatedEntityId(savedGoal.getGoalId());
+        notif.setStatus(NotificationStatus.UNREAD);
+        notif.setPriority(req.getPri().name());
+        notif.setActionRequired(true);
+        notifRepo.save(notif);
+        
+        // Create audit log
+        AuditLog log = new AuditLog();
+        log.setUser(emp);
+        log.setAction("GOAL_CREATED");
+        log.setDetails("Created goal: " + goal.getTitle());
+        log.setRelatedEntityType("Goal");
+        log.setRelatedEntityId(savedGoal.getGoalId());
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return savedGoal;
+    }
+    
+    // Get goals by user
+    public List<Goal> getGoalsByUser(Integer userId) {
+        return goalRepo.findByAssignedToUser_UserId(userId);
+    }
+    
+    // Get goals by manager
+    public List<Goal> getGoalsByManager(Integer mgrId) {
+        return goalRepo.findByAssignedManager_UserId(mgrId);
+    }
+    
+    // Get goal by ID
+    public Goal getGoalById(Integer goalId) {
+        return goalRepo.findById(goalId)
+                .orElseThrow(() -> new ResourceNotFoundException("Goal not found"));
+    }
+    
+    // Approve goal (Manager)
+    public Goal approveGoal(Integer goalId, Integer mgrId) {
+        Goal goal = getGoalById(goalId);
+        
+        // Check if manager is authorized
+        if (!goal.getAssignedManager().getUserId().equals(mgrId)) {
+            throw new UnauthorizedException("Not authorized to approve this goal");
+        }
+        
+        // Check if goal is in pending status
+        if (!goal.getStatus().equals(GoalStatus.PENDING)) {
+            throw new BadRequestException("Goal is not in pending status");
+        }
+        
+        // Update goal
+        goal.setStatus(GoalStatus.IN_PROGRESS);
+        goal.setApprovedBy(goal.getAssignedManager());
+        goal.setApprovedDate(LocalDateTime.now());
+        goal.setRequestChanges(false);
+        Goal updated = goalRepo.save(goal);
+        
+        // Notify employee
+        Notification notif = new Notification();
+        notif.setUser(goal.getAssignedToUser());
+        notif.setType(NotificationType.GOAL_APPROVED);
+        notif.setMessage("Your goal '" + goal.getTitle() + "' has been approved");
+        notif.setRelatedEntityType("Goal");
+        notif.setRelatedEntityId(goalId);
+        notif.setStatus(NotificationStatus.UNREAD);
+        notifRepo.save(notif);
+        
+        // Audit log
+        User mgr = userRepo.findById(mgrId).orElse(null);
+        AuditLog log = new AuditLog();
+        log.setUser(mgr);
+        log.setAction("GOAL_APPROVED");
+        log.setDetails("Approved goal: " + goal.getTitle());
+        log.setRelatedEntityType("Goal");
+        log.setRelatedEntityId(goalId);
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return updated;
+    }
+    
+    // Request changes to goal (Manager)
+    public Goal requestChanges(Integer goalId, Integer mgrId, String comments) {
+        Goal goal = getGoalById(goalId);
+        
+        // Check authorization
+        if (!goal.getAssignedManager().getUserId().equals(mgrId)) {
+            throw new UnauthorizedException("Not authorized");
+        }
+        
+        // Update goal
+        goal.setRequestChanges(true);
+        User mgr = userRepo.findById(mgrId).orElse(null);
+        goal.setLastReviewedBy(mgr);
+        goal.setLastReviewedDate(LocalDateTime.now());
+        Goal updated = goalRepo.save(goal);
+        
+        // Save feedback
+        Feedback fb = new Feedback();
+        fb.setGoal(goal);
+        fb.setGivenByUser(mgr);
+        fb.setComments(comments);
+        fb.setFeedbackType("CHANGE_REQUEST");
+        fb.setDate(LocalDateTime.now());
+        fbRepo.save(fb);
+        
+        // Notify employee
+        Notification notif = new Notification();
+        notif.setUser(goal.getAssignedToUser());
+        notif.setType(NotificationType.GOAL_CHANGE_REQUESTED);
+        notif.setMessage("Changes requested for goal: " + goal.getTitle());
+        notif.setRelatedEntityType("Goal");
+        notif.setRelatedEntityId(goalId);
+        notif.setStatus(NotificationStatus.UNREAD);
+        notifRepo.save(notif);
+        
+        // Audit log
+        AuditLog log = new AuditLog();
+        log.setUser(mgr);
+        log.setAction("GOAL_CHANGE_REQUESTED");
+        log.setDetails("Requested changes for goal: " + goal.getTitle());
+        log.setRelatedEntityType("Goal");
+        log.setRelatedEntityId(goalId);
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return updated;
+    }
+    
+    // Submit goal completion with evidence (Employee)
+    public Goal submitCompletion(Integer goalId, SubmitCompletionRequest req, Integer empId) {
+        Goal goal = getGoalById(goalId);
+        
+        // Check authorization
+        if (!goal.getAssignedToUser().getUserId().equals(empId)) {
+            throw new UnauthorizedException("Not authorized");
+        }
+        
+        // Check if goal is in progress
+        if (!goal.getStatus().equals(GoalStatus.IN_PROGRESS)) {
+            throw new BadRequestException("Goal is not in progress");
+        }
+        
+        // Update goal with evidence and completion info
+        goal.setStatus(GoalStatus.PENDING_COMPLETION_APPROVAL);
+        goal.setEvidenceLink(req.getEvLink());
+        goal.setEvidenceLinkDescription(req.getLinkDesc());
+        goal.setEvidenceAccessInstructions(req.getAccessInstr());
+        goal.setCompletionNotes(req.getCompNotes());
+        goal.setCompletionSubmittedDate(LocalDateTime.now());
+        goal.setCompletionApprovalStatus(CompletionApprovalStatus.PENDING);
+        goal.setEvidenceLinkVerificationStatus(EvidenceVerificationStatus.NOT_VERIFIED);
+        Goal updated = goalRepo.save(goal);
+        
+        // Notify manager
+        Notification notif = new Notification();
+        notif.setUser(goal.getAssignedManager());
+        notif.setType(NotificationType.GOAL_COMPLETION_SUBMITTED);
+        notif.setMessage(goal.getAssignedToUser().getName() + " submitted completion for goal: " + goal.getTitle());
+        notif.setRelatedEntityType("Goal");
+        notif.setRelatedEntityId(goalId);
+        notif.setStatus(NotificationStatus.UNREAD);
+        notif.setPriority("HIGH");
+        notif.setActionRequired(true);
+        notifRepo.save(notif);
+        
+        // Audit log
+        User emp = userRepo.findById(empId).orElse(null);
+        AuditLog log = new AuditLog();
+        log.setUser(emp);
+        log.setAction("GOAL_COMPLETION_SUBMITTED");
+        log.setDetails("Submitted completion for goal: " + goal.getTitle());
+        log.setRelatedEntityType("Goal");
+        log.setRelatedEntityId(goalId);
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return updated;
+    }
+    
+    // Approve goal completion (Manager)
+    public Goal approveCompletion(Integer goalId, ApproveCompletionRequest req, Integer mgrId) {
+        Goal goal = getGoalById(goalId);
+        
+        // Check authorization
+        if (!goal.getAssignedManager().getUserId().equals(mgrId)) {
+            throw new UnauthorizedException("Not authorized");
+        }
+        
+        // Check status
+        if (!goal.getStatus().equals(GoalStatus.PENDING_COMPLETION_APPROVAL)) {
+            throw new BadRequestException("Goal is not pending completion approval");
+        }
+        
+        // Update goal
+        goal.setStatus(GoalStatus.COMPLETED);
+        goal.setCompletionApprovalStatus(CompletionApprovalStatus.APPROVED);
+        User mgr = userRepo.findById(mgrId).orElse(null);
+        goal.setCompletionApprovedBy(mgr);
+        goal.setCompletionApprovedDate(LocalDateTime.now());
+        goal.setFinalCompletionDate(LocalDateTime.now());
+        goal.setManagerCompletionComments(req.getMgrComments());
+        goal.setEvidenceLinkVerificationStatus(EvidenceVerificationStatus.VERIFIED);
+        goal.setEvidenceLinkVerifiedBy(mgr);
+        goal.setEvidenceLinkVerifiedDate(LocalDateTime.now());
+        Goal updated = goalRepo.save(goal);
+        
+        // Create GoalCompletionApproval record
+        GoalCompletionApproval approval = new GoalCompletionApproval();
+        approval.setGoal(goal);
+        approval.setApprovalDecision("APPROVED");
+        approval.setApprovedBy(mgr);
+        approval.setApprovalDate(LocalDateTime.now());
+        approval.setManagerComments(req.getMgrComments());
+        approval.setEvidenceLinkVerified(true);
+        approval.setDecisionRationale("Evidence verified and goal completion approved");
+        approvalRepo.save(approval);
+        
+        // Notify employee
+        Notification notif = new Notification();
+        notif.setUser(goal.getAssignedToUser());
+        notif.setType(NotificationType.GOAL_COMPLETION_APPROVED);
+        notif.setMessage("Your goal '" + goal.getTitle() + "' completion has been approved!");
+        notif.setRelatedEntityType("Goal");
+        notif.setRelatedEntityId(goalId);
+        notif.setStatus(NotificationStatus.UNREAD);
+        notif.setPriority("HIGH");
+        notifRepo.save(notif);
+        
+        // Audit log
+        AuditLog log = new AuditLog();
+        log.setUser(mgr);
+        log.setAction("GOAL_COMPLETION_APPROVED");
+        log.setDetails("Approved completion for goal: " + goal.getTitle());
+        log.setRelatedEntityType("Goal");
+        log.setRelatedEntityId(goalId);
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return updated;
+    }
+    
+    // Request additional evidence (Manager)
+    public Goal requestAdditionalEvidence(Integer goalId, Integer mgrId, String reason) {
+        Goal goal = getGoalById(goalId);
+        
+        // Check authorization
+        if (!goal.getAssignedManager().getUserId().equals(mgrId)) {
+            throw new UnauthorizedException("Not authorized");
+        }
+        
+        // Update goal
+        goal.setCompletionApprovalStatus(CompletionApprovalStatus.ADDITIONAL_EVIDENCE_REQUIRED);
+        goal.setEvidenceLinkVerificationStatus(EvidenceVerificationStatus.NEEDS_ADDITIONAL_LINK);
+        User mgr = userRepo.findById(mgrId).orElse(null);
+        goal.setEvidenceLinkVerificationNotes(reason);
+        Goal updated = goalRepo.save(goal);
+        
+        // Notify employee
+        Notification notif = new Notification();
+        notif.setUser(goal.getAssignedToUser());
+        notif.setType(NotificationType.ADDITIONAL_EVIDENCE_REQUIRED);
+        notif.setMessage("Additional evidence needed for goal: " + goal.getTitle());
+        notif.setRelatedEntityType("Goal");
+        notif.setRelatedEntityId(goalId);
+        notif.setStatus(NotificationStatus.UNREAD);
+        notif.setActionRequired(true);
+        notifRepo.save(notif);
+        
+        // Audit log
+        AuditLog log = new AuditLog();
+        log.setUser(mgr);
+        log.setAction("ADDITIONAL_EVIDENCE_REQUESTED");
+        log.setDetails("Requested additional evidence for goal: " + goal.getTitle());
+        log.setRelatedEntityType("Goal");
+        log.setRelatedEntityId(goalId);
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return updated;
+    }
+    
+    // Update goal (Employee - only when changes requested)
+    public Goal updateGoal(Integer goalId, CreateGoalRequest req, Integer empId) {
+        Goal goal = getGoalById(goalId);
+        
+        // Check authorization
+        if (!goal.getAssignedToUser().getUserId().equals(empId)) {
+            throw new UnauthorizedException("Not authorized");
+        }
+        
+        // Check if changes were requested
+        if (!goal.getRequestChanges()) {
+            throw new BadRequestException("Goal is not in change request status");
+        }
+        
+        // Update goal fields
+        goal.setTitle(req.getTitle());
+        goal.setDescription(req.getDesc());
+        goal.setCategory(req.getCat());
+        goal.setPriority(req.getPri());
+        goal.setStartDate(req.getStartDt());
+        goal.setEndDate(req.getEndDt());
+        goal.setRequestChanges(false);
+        goal.setResubmittedDate(LocalDateTime.now());
+        
+        Goal updated = goalRepo.save(goal);
+        
+        // Notify manager
+        Notification notif = new Notification();
+        notif.setUser(goal.getAssignedManager());
+        notif.setType(NotificationType.GOAL_RESUBMITTED);
+        notif.setMessage(goal.getAssignedToUser().getName() + " updated and resubmitted goal: " + goal.getTitle());
+        notif.setRelatedEntityType("Goal");
+        notif.setRelatedEntityId(goalId);
+        notif.setStatus(NotificationStatus.UNREAD);
+        notifRepo.save(notif);
+        
+        // Audit log
+        User emp = userRepo.findById(empId).orElse(null);
+        AuditLog log = new AuditLog();
+        log.setUser(emp);
+        log.setAction("GOAL_UPDATED");
+        log.setDetails("Updated and resubmitted goal: " + goal.getTitle());
+        log.setRelatedEntityType("Goal");
+        log.setRelatedEntityId(goalId);
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return updated;
+    }
+    
+    // Delete goal (soft delete)
+    public void deleteGoal(Integer goalId, Integer userId, String role) {
+        Goal goal = getGoalById(goalId);
+        
+        // Check authorization - employee can delete own goals, manager/admin can delete any
+        if (role.equals("EMPLOYEE") && !goal.getAssignedToUser().getUserId().equals(userId)) {
+            throw new UnauthorizedException("Not authorized to delete this goal");
+        }
+        
+        // Soft delete - just mark as rejected or inactive status
+        goal.setStatus(GoalStatus.REJECTED);
+        goalRepo.save(goal);
+        
+        // Audit log
+        User user = userRepo.findById(userId).orElse(null);
+        AuditLog log = new AuditLog();
+        log.setUser(user);
+        log.setAction("GOAL_DELETED");
+        log.setDetails("Deleted goal: " + goal.getTitle());
+        log.setRelatedEntityType("Goal");
+        log.setRelatedEntityId(goalId);
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+    }
+    
+    // Verify evidence (Manager)
+    public Goal verifyEvidence(Integer goalId, Integer mgrId, String status, String notes) {
+        Goal goal = getGoalById(goalId);
+        
+        // Check authorization
+        if (!goal.getAssignedManager().getUserId().equals(mgrId)) {
+            throw new UnauthorizedException("Not authorized");
+        }
+        
+        // Update evidence verification status
+        EvidenceVerificationStatus evStatus = EvidenceVerificationStatus.valueOf(status.toUpperCase());
+        goal.setEvidenceLinkVerificationStatus(evStatus);
+        goal.setEvidenceLinkVerificationNotes(notes);
+        User mgr = userRepo.findById(mgrId).orElse(null);
+        goal.setEvidenceLinkVerifiedBy(mgr);
+        goal.setEvidenceLinkVerifiedDate(LocalDateTime.now());
+        
+        Goal updated = goalRepo.save(goal);
+        
+        // Audit log
+        AuditLog log = new AuditLog();
+        log.setUser(mgr);
+        log.setAction("EVIDENCE_VERIFIED");
+        log.setDetails("Verified evidence for goal: " + goal.getTitle() + " - Status: " + status);
+        log.setRelatedEntityType("Goal");
+        log.setRelatedEntityId(goalId);
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return updated;
+    }
+    
+    // Reject goal completion (Manager)
+    public Goal rejectCompletion(Integer goalId, Integer mgrId, String reason) {
+        Goal goal = getGoalById(goalId);
+        
+        // Check authorization
+        if (!goal.getAssignedManager().getUserId().equals(mgrId)) {
+            throw new UnauthorizedException("Not authorized");
+        }
+        
+        // Update goal status back to in progress
+        goal.setStatus(GoalStatus.IN_PROGRESS);
+        goal.setCompletionApprovalStatus(CompletionApprovalStatus.REJECTED);
+        goal.setManagerCompletionComments(reason);
+        
+        Goal updated = goalRepo.save(goal);
+        
+        // Create GoalCompletionApproval record for rejection
+        GoalCompletionApproval approval = new GoalCompletionApproval();
+        approval.setGoal(goal);
+        approval.setApprovalDecision("REJECTED");
+        User mgr = userRepo.findById(mgrId).orElse(null);
+        approval.setApprovedBy(mgr);
+        approval.setApprovalDate(LocalDateTime.now());
+        approval.setManagerComments(reason);
+        approval.setEvidenceLinkVerified(false);
+        approval.setDecisionRationale("Goal completion rejected");
+        approvalRepo.save(approval);
+        
+        // Notify employee
+        Notification notif = new Notification();
+        notif.setUser(goal.getAssignedToUser());
+        notif.setType(NotificationType.GOAL_COMPLETION_APPROVED);
+        notif.setMessage("Your goal '" + goal.getTitle() + "' completion was rejected. Please review feedback.");
+        notif.setRelatedEntityType("Goal");
+        notif.setRelatedEntityId(goalId);
+        notif.setStatus(NotificationStatus.UNREAD);
+        notif.setPriority("HIGH");
+        notifRepo.save(notif);
+        
+        // Audit log
+        AuditLog log = new AuditLog();
+        log.setUser(mgr);
+        log.setAction("GOAL_COMPLETION_REJECTED");
+        log.setDetails("Rejected completion for goal: " + goal.getTitle());
+        log.setRelatedEntityType("Goal");
+        log.setRelatedEntityId(goalId);
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return updated;
+    }
+    
+    // Add progress update (Employee)
+    public void addProgressUpdate(Integer goalId, Integer empId, String note) {
+        Goal goal = getGoalById(goalId);
+        
+        // Check authorization
+        if (!goal.getAssignedToUser().getUserId().equals(empId)) {
+            throw new UnauthorizedException("Not authorized");
+        }
+        
+        // Add progress note (append to existing notes with timestamp)
+        String timestamp = LocalDateTime.now().toString();
+        String newNote = timestamp + ": " + note;
+        
+        String existingNotes = goal.getProgressNotes();
+        if (existingNotes == null || existingNotes.isEmpty()) {
+            goal.setProgressNotes(newNote);
+        } else {
+            goal.setProgressNotes(existingNotes + "\n" + newNote);
+        }
+        
+        goalRepo.save(goal);
+        
+        // Audit log
+        User emp = userRepo.findById(empId).orElse(null);
+        AuditLog log = new AuditLog();
+        log.setUser(emp);
+        log.setAction("PROGRESS_ADDED");
+        log.setDetails("Added progress update for goal: " + goal.getTitle());
+        log.setRelatedEntityType("Goal");
+        log.setRelatedEntityId(goalId);
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+    }
+    
+    // Get progress updates
+    public String getProgressUpdates(Integer goalId) {
+        Goal goal = getGoalById(goalId);
+        return goal.getProgressNotes() != null ? goal.getProgressNotes() : "No progress updates yet";
+    }
+}
+package com.project.performanceTrack.service;
+
+import com.project.performanceTrack.dto.ManagerReviewRequest;
+import com.project.performanceTrack.dto.SelfAssessmentRequest;
+import com.project.performanceTrack.entity.*;
+import com.project.performanceTrack.enums.NotificationStatus;
+import com.project.performanceTrack.enums.NotificationType;
+import com.project.performanceTrack.enums.PerformanceReviewStatus;
+import com.project.performanceTrack.exception.BadRequestException;
+import com.project.performanceTrack.exception.ResourceNotFoundException;
+import com.project.performanceTrack.exception.UnauthorizedException;
+import com.project.performanceTrack.repository.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import com.project.performanceTrack.enums.GoalStatus;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+// Performance review service
+@Service
+public class PerformanceReviewService {
+    
+    @Autowired
+    private PerformanceReviewRepository reviewRepo;
+    
+    @Autowired
+    private UserRepository userRepo;
+    
+    @Autowired
+    private ReviewCycleRepository cycleRepo;
+    
+    @Autowired
+    private NotificationRepository notifRepo;
+    
+    @Autowired
+    private AuditLogRepository auditRepo;
+    
+    @Autowired
+    private PerformanceReviewGoalsRepository reviewGoalsRepo;
+    
+    @Autowired
+    private GoalRepository goalRepo;
+    
+    // Get reviews by user
+    public List<PerformanceReview> getReviewsByUser(Integer userId) {
+        return reviewRepo.findByUser_UserId(userId);
+    }
+    
+    // Get reviews by cycle
+    public List<PerformanceReview> getReviewsByCycle(Integer cycleId) {
+        return reviewRepo.findByCycle_CycleId(cycleId);
+    }
+    
+    // Get review by ID
+    public PerformanceReview getReviewById(Integer reviewId) {
+        return reviewRepo.findById(reviewId)
+                .orElseThrow(() -> new ResourceNotFoundException("Review not found"));
+    }
+    
+    // Submit self-assessment (Employee)
+    public PerformanceReview submitSelfAssessment(SelfAssessmentRequest req, Integer empId) {
+        // Get employee
+        User emp = userRepo.findById(empId)
+                .orElseThrow(() -> new ResourceNotFoundException("Employee not found"));
+        
+        // Get review cycle
+        ReviewCycle cycle = cycleRepo.findById(req.getCycleId())
+                .orElseThrow(() -> new ResourceNotFoundException("Review cycle not found"));
+        
+        // Check if review already exists
+        PerformanceReview review = reviewRepo
+                .findByCycle_CycleIdAndUser_UserId(req.getCycleId(), empId)
+                .orElse(null);
+        
+        if (review != null && review.getStatus() != PerformanceReviewStatus.PENDING) {
+            throw new BadRequestException("Self-assessment already submitted");
+        }
+        
+        // Create or update review
+        if (review == null) {
+            review = new PerformanceReview();
+            review.setCycle(cycle);
+            review.setUser(emp);
+        }
+        
+        review.setSelfAssessment(req.getSelfAssmt());
+        review.setEmployeeSelfRating(req.getSelfRating());
+        review.setStatus(PerformanceReviewStatus.SELF_ASSESSMENT_COMPLETED);
+        review.setSubmittedDate(LocalDateTime.now());
+        
+        // Save review
+        PerformanceReview saved = reviewRepo.save(review);
+        
+        // Link completed goals to this review
+        List<Goal> completedGoals = goalRepo.findByAssignedToUser_UserIdAndStatus(empId, GoalStatus.COMPLETED);
+        for (Goal goal : completedGoals) {
+            PerformanceReviewGoals link = new PerformanceReviewGoals();
+            link.setReview(saved);
+            link.setGoal(goal);
+            link.setLinkedDate(LocalDateTime.now());
+            reviewGoalsRepo.save(link);
+        }
+        
+        // Notify manager
+        if (emp.getManager() != null) {
+            Notification notif = new Notification();
+            notif.setUser(emp.getManager());
+            notif.setType(NotificationType.SELF_ASSESSMENT_SUBMITTED);
+            notif.setMessage(emp.getName() + " submitted self-assessment");
+            notif.setRelatedEntityType("PerformanceReview");
+            notif.setRelatedEntityId(saved.getReviewId());
+            notif.setStatus(NotificationStatus.UNREAD);
+            notif.setPriority("HIGH");
+            notif.setActionRequired(true);
+            notifRepo.save(notif);
+        }
+        
+        // Audit log
+        AuditLog log = new AuditLog();
+        log.setUser(emp);
+        log.setAction("SELF_ASSESSMENT_SUBMITTED");
+        log.setDetails("Submitted self-assessment for " + cycle.getTitle());
+        log.setRelatedEntityType("PerformanceReview");
+        log.setRelatedEntityId(saved.getReviewId());
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return saved;
+    }
+    
+    // Update self-assessment draft (Employee)
+    public PerformanceReview updateSelfAssessmentDraft(Integer reviewId, SelfAssessmentRequest req, Integer empId) {
+        PerformanceReview review = getReviewById(reviewId);
+        
+        // Check authorization
+        if (!review.getUser().getUserId().equals(empId)) {
+            throw new UnauthorizedException("Not authorized");
+        }
+        
+        // Can only update if still in pending or self-assessment status
+        if (review.getStatus() != PerformanceReviewStatus.PENDING && 
+            review.getStatus() != PerformanceReviewStatus.SELF_ASSESSMENT_COMPLETED) {
+            throw new BadRequestException("Cannot update - review already completed");
+        }
+        
+        // Update self-assessment
+        review.setSelfAssessment(req.getSelfAssmt());
+        review.setEmployeeSelfRating(req.getSelfRating());
+        
+        // Save without changing status
+        PerformanceReview updated = reviewRepo.save(review);
+        
+        // Audit log
+        User emp = userRepo.findById(empId).orElse(null);
+        AuditLog log = new AuditLog();
+        log.setUser(emp);
+        log.setAction("SELF_ASSESSMENT_DRAFT_UPDATED");
+        log.setDetails("Updated self-assessment draft");
+        log.setRelatedEntityType("PerformanceReview");
+        log.setRelatedEntityId(reviewId);
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return updated;
+    }
+    
+    // Submit manager review (Manager)
+    public PerformanceReview submitManagerReview(Integer reviewId, ManagerReviewRequest req, Integer mgrId) {
+        PerformanceReview review = getReviewById(reviewId);
+        
+        // Check authorization
+        if (!review.getUser().getManager().getUserId().equals(mgrId)) {
+            throw new UnauthorizedException("Not authorized");
+        }
+        
+        // Check if self-assessment is completed
+        if (review.getStatus() != PerformanceReviewStatus.SELF_ASSESSMENT_COMPLETED) {
+            throw new BadRequestException("Self-assessment not completed");
+        }
+        
+        // Update review
+        User mgr = userRepo.findById(mgrId).orElse(null);
+        review.setManagerFeedback(req.getMgrFb());
+        review.setManagerRating(req.getMgrRating());
+        review.setRatingJustification(req.getRatingJust());
+        review.setCompensationRecommendations(req.getCompRec());
+        review.setNextPeriodGoals(req.getNextGoals());
+        review.setReviewedBy(mgr);
+        review.setReviewCompletedDate(LocalDateTime.now());
+        review.setStatus(PerformanceReviewStatus.COMPLETED);
+        
+        // Save review
+        PerformanceReview saved = reviewRepo.save(review);
+        
+        // Notify employee
+        Notification notif = new Notification();
+        notif.setUser(review.getUser());
+        notif.setType(NotificationType.PERFORMANCE_REVIEW_COMPLETED);
+        notif.setMessage("Your performance review has been completed");
+        notif.setRelatedEntityType("PerformanceReview");
+        notif.setRelatedEntityId(reviewId);
+        notif.setStatus(NotificationStatus.UNREAD);
+        notif.setPriority("HIGH");
+        notifRepo.save(notif);
+        
+        // Audit log
+        AuditLog log = new AuditLog();
+        log.setUser(mgr);
+        log.setAction("MANAGER_REVIEW_COMPLETED");
+        log.setDetails("Completed review for " + review.getUser().getName());
+        log.setRelatedEntityType("PerformanceReview");
+        log.setRelatedEntityId(reviewId);
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return saved;
+    }
+    
+    // Acknowledge review (Employee)
+    public PerformanceReview acknowledgeReview(Integer reviewId, Integer empId, String response) {
+        PerformanceReview review = getReviewById(reviewId);
+        
+        // Check authorization
+        if (!review.getUser().getUserId().equals(empId)) {
+            throw new UnauthorizedException("Not authorized");
+        }
+        
+        // Check if review is completed
+        if (review.getStatus() != PerformanceReviewStatus.COMPLETED) {
+            throw new BadRequestException("Review not completed");
+        }
+        
+        // Update review
+        User emp = userRepo.findById(empId).orElse(null);
+        review.setAcknowledgedBy(emp);
+        review.setAcknowledgedDate(LocalDateTime.now());
+        review.setEmployeeResponse(response);
+        review.setStatus(PerformanceReviewStatus.COMPLETED_AND_ACKNOWLEDGED);
+        
+        // Save review
+        PerformanceReview saved = reviewRepo.save(review);
+        
+        // Notify manager
+        if (review.getUser().getManager() != null) {
+            Notification notif = new Notification();
+            notif.setUser(review.getUser().getManager());
+            notif.setType(NotificationType.REVIEW_ACKNOWLEDGED);
+            notif.setMessage(review.getUser().getName() + " acknowledged their review");
+            notif.setRelatedEntityType("PerformanceReview");
+            notif.setRelatedEntityId(reviewId);
+            notif.setStatus(NotificationStatus.UNREAD);
+            notifRepo.save(notif);
+        }
+        
+        // Audit log
+        AuditLog log = new AuditLog();
+        log.setUser(emp);
+        log.setAction("REVIEW_ACKNOWLEDGED");
+        log.setDetails("Acknowledged performance review");
+        log.setRelatedEntityType("PerformanceReview");
+        log.setRelatedEntityId(reviewId);
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return saved;
+    }
+}
+package com.project.performanceTrack.service;
+
+import com.project.performanceTrack.entity.AuditLog;
+import com.project.performanceTrack.entity.Report;
+import com.project.performanceTrack.entity.User;
+import com.project.performanceTrack.entity.Goal;
+import com.project.performanceTrack.entity.PerformanceReview;
+import com.project.performanceTrack.enums.GoalStatus;
+import com.project.performanceTrack.exception.ResourceNotFoundException;
+import com.project.performanceTrack.repository.ReportRepository;
+import com.project.performanceTrack.repository.UserRepository;
+import com.project.performanceTrack.repository.AuditLogRepository;
+import com.project.performanceTrack.repository.GoalRepository;
+import com.project.performanceTrack.repository.PerformanceReviewRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.ArrayList;
+
+// Report service - handles report generation
+@Service
+public class ReportService {
+    
+    @Autowired
+    private ReportRepository reportRepo;
+    
+    @Autowired
+    private UserRepository userRepo;
+    
+    @Autowired
+    private AuditLogRepository auditRepo;
+    
+    @Autowired
+    private GoalRepository goalRepo;
+    
+    @Autowired
+    private PerformanceReviewRepository reviewRepo;
+    
+    // Get all reports
+    public List<Report> getAllReports() {
+        return reportRepo.findAll();
+    }
+    
+    // Get report by ID
+    public Report getReportById(Integer reportId) {
+        return reportRepo.findById(reportId)
+                .orElseThrow(() -> new ResourceNotFoundException("Report not found"));
+    }
+    
+    // Get reports by user
+    public List<Report> getReportsByUser(Integer userId) {
+        return reportRepo.findByGeneratedBy_UserIdOrderByGeneratedDateDesc(userId);
+    }
+    
+    // Generate report (Admin/Manager)
+    public Report generateReport(String scope, String metrics, String format, Integer userId) {
+        User user = userRepo.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        
+        // Create report
+        Report report = new Report();
+        report.setScope(scope);
+        report.setMetrics(metrics);
+        report.setFormat(format);
+        report.setGeneratedBy(user);
+        report.setGeneratedDate(LocalDateTime.now());
+        report.setFilePath("/reports/" + System.currentTimeMillis() + "." + format.toLowerCase());
+        
+        // Save report
+        Report saved = reportRepo.save(report);
+        
+        // Create audit log
+        AuditLog log = new AuditLog();
+        log.setUser(user);
+        log.setAction("REPORT_GENERATED");
+        log.setDetails("Generated " + scope + " report in " + format + " format");
+        log.setRelatedEntityType("Report");
+        log.setRelatedEntityId(saved.getReportId());
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return saved;
+    }
+    
+    // Get dashboard metrics
+    public Map<String, Object> getDashboardMetrics(Integer userId, String role) {
+        Map<String, Object> metrics = new HashMap<>();
+        
+        if (role.equals("EMPLOYEE")) {
+            // Employee dashboard metrics
+            List<Goal> myGoals = goalRepo.findByAssignedToUser_UserId(userId);
+            long completedGoals = myGoals.stream().filter(g -> g.getStatus() == GoalStatus.COMPLETED).count();
+            long inProgressGoals = myGoals.stream().filter(g -> g.getStatus() == GoalStatus.IN_PROGRESS).count();
+            long pendingGoals = myGoals.stream().filter(g -> g.getStatus() == GoalStatus.PENDING).count();
+            
+            metrics.put("totalGoals", myGoals.size());
+            metrics.put("completedGoals", completedGoals);
+            metrics.put("inProgressGoals", inProgressGoals);
+            metrics.put("pendingGoals", pendingGoals);
+            metrics.put("completionRate", myGoals.size() > 0 ? (completedGoals * 100.0 / myGoals.size()) : 0);
+            
+        } else if (role.equals("MANAGER")) {
+            // Manager dashboard metrics
+            List<Goal> teamGoals = goalRepo.findByAssignedManager_UserId(userId);
+            List<User> teamMembers = userRepo.findByManager_UserId(userId);
+            
+            metrics.put("teamSize", teamMembers.size());
+            metrics.put("totalTeamGoals", teamGoals.size());
+            metrics.put("pendingApprovals", teamGoals.stream().filter(g -> g.getStatus() == GoalStatus.PENDING).count());
+            metrics.put("pendingCompletions", teamGoals.stream().filter(g -> g.getStatus() == GoalStatus.PENDING_COMPLETION_APPROVAL).count());
+            
+        } else {
+            // Admin dashboard metrics
+            List<User> allUsers = userRepo.findAll();
+            List<Goal> allGoals = goalRepo.findAll();
+            List<PerformanceReview> allReviews = reviewRepo.findAll();
+            
+            metrics.put("totalUsers", allUsers.size());
+            metrics.put("totalGoals", allGoals.size());
+            metrics.put("totalReviews", allReviews.size());
+            metrics.put("completedGoals", allGoals.stream().filter(g -> g.getStatus() == GoalStatus.COMPLETED).count());
+        }
+        
+        return metrics;
+    }
+    
+    // Get performance summary
+    public Map<String, Object> getPerformanceSummary(Integer cycleId, String dept) {
+        Map<String, Object> summary = new HashMap<>();
+        
+        List<PerformanceReview> reviews;
+        if (cycleId != null) {
+            reviews = reviewRepo.findByCycle_CycleId(cycleId);
+        } else {
+            reviews = reviewRepo.findAll();
+        }
+        
+        // Filter by department if provided
+        if (dept != null && !dept.isEmpty()) {
+            reviews = reviews.stream()
+                    .filter(r -> dept.equals(r.getUser().getDepartment()))
+                    .toList();
+        }
+        
+        // Calculate metrics
+        long totalReviews = reviews.size();
+        double avgSelfRating = reviews.stream()
+                .filter(r -> r.getEmployeeSelfRating() != null)
+                .mapToInt(PerformanceReview::getEmployeeSelfRating)
+                .average()
+                .orElse(0.0);
+        
+        double avgManagerRating = reviews.stream()
+                .filter(r -> r.getManagerRating() != null)
+                .mapToInt(PerformanceReview::getManagerRating)
+                .average()
+                .orElse(0.0);
+        
+        summary.put("totalReviews", totalReviews);
+        summary.put("avgSelfRating", avgSelfRating);
+        summary.put("avgManagerRating", avgManagerRating);
+        summary.put("cycleId", cycleId);
+        summary.put("department", dept);
+        
+        return summary;
+    }
+    
+    // Get goal analytics
+    public Map<String, Object> getGoalAnalytics() {
+        Map<String, Object> analytics = new HashMap<>();
+        
+        List<Goal> allGoals = goalRepo.findAll();
+        
+        // Status breakdown
+        long pending = allGoals.stream().filter(g -> g.getStatus() == GoalStatus.PENDING).count();
+        long inProgress = allGoals.stream().filter(g -> g.getStatus() == GoalStatus.IN_PROGRESS).count();
+        long pendingCompletion = allGoals.stream().filter(g -> g.getStatus() == GoalStatus.PENDING_COMPLETION_APPROVAL).count();
+        long completed = allGoals.stream().filter(g -> g.getStatus() == GoalStatus.COMPLETED).count();
+        long rejected = allGoals.stream().filter(g -> g.getStatus() == GoalStatus.REJECTED).count();
+        
+        analytics.put("totalGoals", allGoals.size());
+        analytics.put("pending", pending);
+        analytics.put("inProgress", inProgress);
+        analytics.put("pendingCompletion", pendingCompletion);
+        analytics.put("completed", completed);
+        analytics.put("rejected", rejected);
+        analytics.put("completionRate", allGoals.size() > 0 ? (completed * 100.0 / allGoals.size()) : 0);
+        
+        return analytics;
+    }
+    
+    // Get department performance
+    public List<Map<String, Object>> getDepartmentPerformance() {
+        List<Map<String, Object>> performance = new ArrayList<>();
+        
+        // Get all unique departments
+        List<User> allUsers = userRepo.findAll();
+        List<String> departments = allUsers.stream()
+                .map(User::getDepartment)
+                .filter(dept -> dept != null && !dept.isEmpty())
+                .distinct()
+                .toList();
+        
+        // For each department, calculate metrics
+        for (String dept : departments) {
+            Map<String, Object> deptMetrics = new HashMap<>();
+            
+            List<User> deptUsers = userRepo.findByDepartment(dept);
+            List<Goal> deptGoals = new ArrayList<>();
+            for (User user : deptUsers) {
+                deptGoals.addAll(goalRepo.findByAssignedToUser_UserId(user.getUserId()));
+            }
+            
+            long completedGoals = deptGoals.stream().filter(g -> g.getStatus() == GoalStatus.COMPLETED).count();
+            
+            deptMetrics.put("department", dept);
+            deptMetrics.put("employeeCount", deptUsers.size());
+            deptMetrics.put("totalGoals", deptGoals.size());
+            deptMetrics.put("completedGoals", completedGoals);
+            deptMetrics.put("completionRate", deptGoals.size() > 0 ? (completedGoals * 100.0 / deptGoals.size()) : 0);
+            
+            performance.add(deptMetrics);
+        }
+        
+        return performance;
+    }
+}
+
+
+package com.project.performanceTrack.service;
+
+import com.project.performanceTrack.dto.CreateReviewCycleRequest;
+import com.project.performanceTrack.entity.AuditLog;
+import com.project.performanceTrack.entity.ReviewCycle;
+import com.project.performanceTrack.entity.User;
+import com.project.performanceTrack.enums.ReviewCycleStatus;
+import com.project.performanceTrack.exception.ResourceNotFoundException;
+import com.project.performanceTrack.repository.AuditLogRepository;
+import com.project.performanceTrack.repository.ReviewCycleRepository;
+import com.project.performanceTrack.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+// Review cycle management service
+@Service
+public class ReviewCycleService {
+    
+    @Autowired
+    private ReviewCycleRepository cycleRepo;
+    
+    @Autowired
+    private UserRepository userRepo;
+    
+    @Autowired
+    private AuditLogRepository auditRepo;
+    
+    // Get all review cycles
+    public List<ReviewCycle> getAllCycles() {
+        return cycleRepo.findAll();
+    }
+    
+    // Get cycle by ID
+    public ReviewCycle getCycleById(Integer cycleId) {
+        return cycleRepo.findById(cycleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Review cycle not found"));
+    }
+    
+    // Get active review cycle
+    public ReviewCycle getActiveCycle() {
+        return cycleRepo.findFirstByStatusOrderByStartDateDesc(ReviewCycleStatus.ACTIVE)
+                .orElseThrow(() -> new ResourceNotFoundException("No active review cycle found"));
+    }
+    
+    // Create review cycle (Admin)
+    public ReviewCycle createCycle(CreateReviewCycleRequest req, Integer adminId) {
+        // Create review cycle
+        ReviewCycle cycle = new ReviewCycle();
+        cycle.setTitle(req.getTitle());
+        cycle.setStartDate(req.getStartDt());
+        cycle.setEndDate(req.getEndDt());
+        cycle.setStatus(req.getStatus());
+        cycle.setRequiresCompletionApproval(req.getReqCompAppr());
+        cycle.setEvidenceRequired(req.getEvReq());
+        
+        // Save cycle
+        ReviewCycle saved = cycleRepo.save(cycle);
+        
+        // Create audit log
+        User admin = userRepo.findById(adminId).orElse(null);
+        AuditLog log = new AuditLog();
+        log.setUser(admin);
+        log.setAction("REVIEW_CYCLE_CREATED");
+        log.setDetails("Created review cycle: " + cycle.getTitle());
+        log.setRelatedEntityType("ReviewCycle");
+        log.setRelatedEntityId(saved.getCycleId());
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return saved;
+    }
+    
+    // Update review cycle (Admin)
+    public ReviewCycle updateCycle(Integer cycleId, CreateReviewCycleRequest req, Integer adminId) {
+        ReviewCycle cycle = getCycleById(cycleId);
+        
+        // Update fields
+        cycle.setTitle(req.getTitle());
+        cycle.setStartDate(req.getStartDt());
+        cycle.setEndDate(req.getEndDt());
+        cycle.setStatus(req.getStatus());
+        cycle.setRequiresCompletionApproval(req.getReqCompAppr());
+        cycle.setEvidenceRequired(req.getEvReq());
+        
+        // Save cycle
+        ReviewCycle updated = cycleRepo.save(cycle);
+        
+        // Create audit log
+        User admin = userRepo.findById(adminId).orElse(null);
+        AuditLog log = new AuditLog();
+        log.setUser(admin);
+        log.setAction("REVIEW_CYCLE_UPDATED");
+        log.setDetails("Updated review cycle: " + cycle.getTitle());
+        log.setRelatedEntityType("ReviewCycle");
+        log.setRelatedEntityId(cycleId);
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return updated;
+    }
+}
+
+
+
+package com.project.performanceTrack.service;
+
+import com.project.performanceTrack.dto.CreateUserRequest;
+import com.project.performanceTrack.entity.AuditLog;
+import com.project.performanceTrack.entity.Notification;
+import com.project.performanceTrack.entity.User;
+import com.project.performanceTrack.enums.NotificationStatus;
+import com.project.performanceTrack.enums.NotificationType;
+import com.project.performanceTrack.exception.BadRequestException;
+import com.project.performanceTrack.exception.ResourceNotFoundException;
+import com.project.performanceTrack.repository.AuditLogRepository;
+import com.project.performanceTrack.repository.NotificationRepository;
+import com.project.performanceTrack.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+// User management service
+@Service
+public class UserService {
+    
+    @Autowired
+    private UserRepository userRepo;
+    
+    @Autowired
+    private PasswordEncoder pwdEncoder;
+    
+    @Autowired
+    private NotificationRepository notifRepo;
+    
+    @Autowired
+    private AuditLogRepository auditRepo;
+    
+    // Get all users
+    public List<User> getAllUsers() {
+        return userRepo.findAll();
+    }
+    
+    // Get user by ID
+    public User getUserById(Integer userId) {
+        return userRepo.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+    }
+    
+    // Create new user (Admin only)
+    public User createUser(CreateUserRequest req, Integer adminId) {
+        // Check if email already exists
+        if (userRepo.findByEmail(req.getEmail()).isPresent()) {
+            throw new BadRequestException("Email already exists");
+        }
+        
+        // Create user entity
+        User user = new User();
+        user.setName(req.getName());
+        user.setEmail(req.getEmail());
+        user.setPasswordHash(pwdEncoder.encode(req.getPassword()));
+        user.setRole(req.getRole());
+        user.setDepartment(req.getDept());
+        user.setStatus(req.getStatus());
+        
+        // Set manager if provided
+        if (req.getMgrId() != null) {
+            User mgr = userRepo.findById(req.getMgrId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Manager not found"));
+            user.setManager(mgr);
+        }
+        
+        // Save user
+        User savedUser = userRepo.save(user);
+        
+        // Create notification for new user
+        Notification notif = new Notification();
+        notif.setUser(savedUser);
+        notif.setType(NotificationType.ACCOUNT_CREATED);
+        notif.setMessage("Your account has been created. You can now log in.");
+        notif.setStatus(NotificationStatus.UNREAD);
+        notifRepo.save(notif);
+        
+        // Create audit log
+        User admin = userRepo.findById(adminId).orElse(null);
+        AuditLog log = new AuditLog();
+        log.setUser(admin);
+        log.setAction("USER_CREATED");
+        log.setDetails("Created user: " + savedUser.getName() + " (" + savedUser.getRole() + ")");
+        log.setRelatedEntityType("User");
+        log.setRelatedEntityId(savedUser.getUserId());
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return savedUser;
+    }
+    
+    // Get team members for manager
+    public List<User> getTeamMembers(Integer mgrId) {
+        return userRepo.findByManager_UserId(mgrId);
+    }
+    
+    // Update user (Admin only)
+    public User updateUser(Integer userId, CreateUserRequest req, Integer adminId) {
+        User user = userRepo.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        
+        // Update fields
+        user.setName(req.getName());
+        user.setRole(req.getRole());
+        user.setDepartment(req.getDept());
+        user.setStatus(req.getStatus());
+        
+        // Update manager if provided
+        if (req.getMgrId() != null) {
+            User mgr = userRepo.findById(req.getMgrId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Manager not found"));
+            user.setManager(mgr);
+        }
+        
+        // Save user
+        User updated = userRepo.save(user);
+        
+        // Create audit log
+        User admin = userRepo.findById(adminId).orElse(null);
+        AuditLog log = new AuditLog();
+        log.setUser(admin);
+        log.setAction("USER_UPDATED");
+        log.setDetails("Updated user: " + updated.getName());
+        log.setRelatedEntityType("User");
+        log.setRelatedEntityId(updated.getUserId());
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+        
+        return updated;
+    }
+}
+
+
+]
+
+
+util[
+package com.project.performanceTrack.util;
+
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.SignatureAlgorithm;
+import io.jsonwebtoken.security.Keys;
+import org.springframework.stereotype.Component;
+
+import java.security.Key;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
+
+// JWT utility for token generation and validation
+@Component
+public class JwtUtil {
+    
+    // Secret key for JWT signing (in production, use environment variable)
+    private static final String SECRET = "MySecretKeyForPerformanceTrackApp2026VeryLongSecretKey";
+    private static final long EXPIRATION = 86400000; // 24 hours in milliseconds
+    
+    private Key getSignKey() {
+        return Keys.hmacShaKeyFor(SECRET.getBytes());
+    }
+    
+    // Generate JWT token
+    public String generateToken(String email, Integer userId, String role) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("userId", userId);
+        claims.put("role", role);
+        
+        return Jwts.builder()
+                .setClaims(claims)
+                .setSubject(email)
+                .setIssuedAt(new Date(System.currentTimeMillis()))
+                .setExpiration(new Date(System.currentTimeMillis() + EXPIRATION))
+                .signWith(getSignKey(), SignatureAlgorithm.HS256)
+                .compact();
+    }
+    
+    // Extract email from token
+    public String extractEmail(String token) {
+        return extractClaims(token).getSubject();
+    }
+    
+    // Extract user ID from token
+    public Integer extractUserId(String token) {
+        return (Integer) extractClaims(token).get("userId");
+    }
+    
+    // Extract role from token
+    public String extractRole(String token) {
+        return (String) extractClaims(token).get("role");
+    }
+    
+    // Extract all claims
+    private Claims extractClaims(String token) {
+        return Jwts.parserBuilder()
+                .setSigningKey(getSignKey())
+                .build()
+                .parseClaimsJws(token)
+                .getBody();
+    }
+    
+    // Validate token
+    public Boolean validateToken(String token, String email) {
+        final String tokenEmail = extractEmail(token);
+        return (tokenEmail.equals(email) && !isTokenExpired(token));
+    }
+    
+    // Check if token is expired
+    private Boolean isTokenExpired(String token) {
+        return extractClaims(token).getExpiration().before(new Date());
+    }
+}
+
+]
+
+application[
+package com.project.performanceTrack;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class PerformanceTrackApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(PerformanceTrackApplication.class, args);
+	}
+
+}
+
+]
