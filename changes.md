@@ -1,0 +1,12 @@
+#changes
+- admin creates user and password . employee/manager get those in background(outside our application)
+- we are not using email / other services . 
+- only use jpql , also give me mysql query in comment
+- use (spring boot , lombock , spring security , spring web, )
+- should i use inmemoryuserdetailservice or jdbcuserdetailservice(i will be using mysql)
+- use centralized exception handling
+- how many tables should i make
+- create a enum folder.
+- custom user detail service
+- use versioning in api
+- use small variavle names(dont use big ones)
