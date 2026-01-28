@@ -1,4 +1,4 @@
-Here's your code with detailed explanatory comments:
+I'll add detailed comments to explain each file:
 
 ```java
 package com.project.performanceTrack.controller;
@@ -15,142 +15,69 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 
 /**
- * AUTHENTICATION CONTROLLER
- * ========================
- * Purpose: Handles all authentication-related operations in the system
- * Endpoints: Login, Logout, and Password Change
- * Base URL: /api/v1/auth
+ * Authentication Controller
  * 
- * This controller is the entry point for user authentication. It receives HTTP requests,
- * validates them, delegates business logic to AuthService, and returns standardized responses.
+ * Purpose: Handles all authentication-related HTTP requests
+ * Endpoints: login, logout, change password
+ * Access: Public for login, authenticated users for logout/password change
  */
-@RestController  // Tells Spring this class handles REST API requests and automatically converts responses to JSON
-@RequestMapping("/api/v1/auth")  // All endpoints in this controller start with /api/v1/auth
+@RestController // Marks this class as a REST API controller that returns JSON responses
+@RequestMapping("/api/v1/auth") // Base URL path for all endpoints in this controller
 public class AuthController {
     
-    /**
-     * DEPENDENCY INJECTION
-     * AuthService contains the actual business logic for authentication
-     * @Autowired tells Spring to automatically inject an instance of AuthService
-     * This follows the principle of separation of concerns - controller handles HTTP, service handles logic
-     */
-    @Autowired
+    @Autowired // Automatically injects AuthService instance
     private AuthService authSvc;
     
     /**
-     * LOGIN ENDPOINT
-     * =============
+     * Login Endpoint
+     * 
      * URL: POST /api/v1/auth/login
-     * Purpose: Authenticates user and generates JWT token
-     * 
-     * @param req - Login credentials (email & password) from request body
-     * @Valid - Triggers validation rules defined in LoginRequest DTO (e.g., email format, password length)
-     * @RequestBody - Tells Spring to extract JSON from HTTP body and convert it to LoginRequest object
-     * 
-     * Flow:
-     * 1. Client sends POST request with JSON: {"email": "user@example.com", "password": "pass123"}
-     * 2. Spring validates the request using @Valid annotation
-     * 3. Controller calls authSvc.login() to verify credentials
-     * 4. Service returns LoginResponse containing JWT token and user info
-     * 5. Controller wraps it in ApiResponse and returns to client
-     * 
-     * Response Example:
-     * {
-     *   "success": true,
-     *   "message": "Login successful",
-     *   "data": {
-     *     "token": "eyJhbGciOiJIUzI1NiIs...",
-     *     "userId": 1,
-     *     "role": "EMPLOYEE"
-     *   }
-     * }
+     * Purpose: Authenticates user and returns JWT token
+     * Request Body: { "email": "user@example.com", "password": "password123" }
+     * Response: JWT token + user details
+     * Access: Public (no authentication required)
      */
-    @PostMapping("/login")  // Maps POST requests to /api/v1/auth/login
+    @PostMapping("/login")
     public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest req) {
-        LoginResponse resp = authSvc.login(req);  // Delegate authentication to service layer
-        return ApiResponse.success("Login successful", resp);  // Return standardized success response
+        // @Valid - Validates the request body against LoginRequest validation rules
+        // @RequestBody - Converts JSON request body to LoginRequest object
+        LoginResponse resp = authSvc.login(req); // Calls service layer to authenticate
+        return ApiResponse.success("Login successful", resp); // Returns success response with token
     }
     
     /**
-     * LOGOUT ENDPOINT
-     * ==============
+     * Logout Endpoint
+     * 
      * URL: POST /api/v1/auth/logout
-     * Purpose: Invalidates user session and JWT token
-     * 
-     * @param req - HttpServletRequest object containing request metadata
-     * 
-     * How it works:
-     * 1. User must be logged in (JWT token verified by JwtAuthFilter before reaching here)
-     * 2. JwtAuthFilter extracts userId from token and stores it in request.attribute("userId")
-     * 3. Controller retrieves userId from request attributes
-     * 4. Service layer invalidates the token (adds to blacklist or updates database)
-     * 
-     * Why HttpServletRequest?
-     * - We need to access request attributes set by the authentication filter
-     * - getAttribute("userId") retrieves the authenticated user's ID
-     * - This ensures only the logged-in user can log themselves out
-     * 
-     * Security Note:
-     * - This endpoint requires a valid JWT token in Authorization header
-     * - JwtAuthFilter runs before this method and validates the token
+     * Purpose: Logs out the current user and creates audit trail
+     * Response: Success message
+     * Access: Authenticated users only (requires valid JWT token)
      */
-    @PostMapping("/logout")  // Maps POST requests to /api/v1/auth/logout
+    @PostMapping("/logout")
     public ApiResponse<Void> logout(HttpServletRequest req) {
-        // Extract authenticated user's ID from request (set by JwtAuthFilter)
-        Integer userId = (Integer) req.getAttribute("userId");
-        
-        // Invalidate session in service layer (blacklist token, update DB, etc.)
-        authSvc.logout(userId);
-        
-        // Return success response (Void means no data payload)
-        return ApiResponse.success("Logout successful");
+        // HttpServletRequest - Gets the HTTP request object to extract user info
+        Integer userId = (Integer) req.getAttribute("userId"); // userId set by JWT filter/interceptor
+        authSvc.logout(userId); // Logs the logout action in audit log
+        return ApiResponse.success("Logout successful"); // Returns success with no data
     }
     
     /**
-     * CHANGE PASSWORD ENDPOINT
-     * =======================
+     * Change Password Endpoint
+     * 
      * URL: PUT /api/v1/auth/change-password
      * Purpose: Allows authenticated users to change their password
-     * 
-     * @param body - Map containing oldPassword and newPassword
-     * @param req - HttpServletRequest to get authenticated user's ID
-     * 
-     * Why Map<String, String>?
-     * - Quick way to accept flexible JSON without creating a dedicated DTO
-     * - body.get("oldPassword") extracts the old password from JSON
-     * - body.get("newPassword") extracts the new password from JSON
-     * 
-     * Request JSON Example:
-     * {
-     *   "oldPassword": "currentPass123",
-     *   "newPassword": "newSecurePass456"
-     * }
-     * 
-     * Security Flow:
-     * 1. User must be authenticated (JWT token required)
-     * 2. JwtAuthFilter validates token and sets userId in request
-     * 3. Service verifies oldPassword matches current password in database
-     * 4. If verified, service hashes newPassword and updates database
-     * 5. Service may invalidate old tokens and generate new one
-     * 
-     * Best Practice Note:
-     * - Always require old password to prevent unauthorized password changes
-     * - New password should be validated (length, complexity) in service layer
+     * Request Body: { "oldPassword": "old123", "newPassword": "new456" }
+     * Response: Success message
+     * Access: Authenticated users only
      */
-    @PutMapping("/change-password")  // PUT is used for update operations
+    @PutMapping("/change-password")
     public ApiResponse<Void> changePassword(@RequestBody Map<String, String> body,
                                             HttpServletRequest req) {
-        // Extract authenticated user's ID from request attributes
-        Integer userId = (Integer) req.getAttribute("userId");
-        
-        // Extract passwords from request body
-        String oldPwd = body.get("oldPassword");
-        String newPwd = body.get("newPassword");
-        
-        // Delegate password change logic to service
-        authSvc.changePassword(userId, oldPwd, newPwd);
-        
-        // Return success response
+        // @RequestBody Map - Accepts flexible JSON object with key-value pairs
+        Integer userId = (Integer) req.getAttribute("userId"); // Get logged-in user ID
+        String oldPwd = body.get("oldPassword"); // Extract old password from request
+        String newPwd = body.get("newPassword"); // Extract new password from request
+        authSvc.changePassword(userId, oldPwd, newPwd); // Validates and updates password
         return ApiResponse.success("Password changed successfully");
     }
 }
@@ -172,175 +99,74 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * AUDIT LOG CONTROLLER
- * ====================
- * Purpose: Provides admin users access to system audit trails
- * Base URL: /api/v1/audit-logs
+ * Audit Log Controller
+ * 
+ * Purpose: Provides admin access to view and export system audit logs
+ * Tracks: All user actions (login, logout, data changes, etc.)
  * Access: ADMIN role only
- * 
- * What are Audit Logs?
- * - Records of all important actions in the system (who did what, when)
- * - Examples: "User X logged in", "Manager Y approved goal", "Admin Z created user"
- * - Critical for compliance, security monitoring, and troubleshooting
- * 
- * Why Admin Only?
- * - Audit logs contain sensitive information about all users
- * - Only admins should see complete system activity
- * - Prevents users from knowing they're being monitored
  */
 @RestController
 @RequestMapping("/api/v1/audit-logs")
-@PreAuthorize("hasRole('ADMIN')")  // Class-level security - ALL methods require ADMIN role
+@PreAuthorize("hasRole('ADMIN')") // ALL endpoints in this controller require ADMIN role
 public class AuditLogController {
     
-    /**
-     * DIRECT REPOSITORY ACCESS
-     * =======================
-     * Note: This controller directly uses repository instead of service layer
-     * 
-     * Why?
-     * - Audit log queries are simple (mostly filtering and retrieval)
-     * - No complex business logic needed
-     * - Reduces unnecessary layers of abstraction
-     * 
-     * When to use Service vs Repository directly?
-     * - Service: Complex logic, multiple operations, business rules
-     * - Repository: Simple CRUD, straightforward queries
-     */
     @Autowired
-    private AuditLogRepository auditRepo;
+    private AuditLogRepository auditRepo; // Direct repository access (simple CRUD operations)
     
     /**
-     * GET AUDIT LOGS WITH FILTERS
-     * ===========================
-     * URL: GET /api/v1/audit-logs?userId=1&action=LOGIN&startDt=...&endDt=...
-     * Purpose: Retrieve audit logs with optional filtering
+     * Get Audit Logs with Filters
      * 
-     * Query Parameters (all optional):
-     * - userId: Filter by specific user's actions
-     * - action: Filter by action type (LOGIN, LOGOUT, CREATE_USER, etc.)
-     * - startDt: Filter logs from this date-time onwards
-     * - endDt: Filter logs up to this date-time
-     * 
-     * Example URLs:
-     * 1. All logs: GET /api/v1/audit-logs
-     * 2. User's logs: GET /api/v1/audit-logs?userId=5
-     * 3. Login actions: GET /api/v1/audit-logs?action=LOGIN
-     * 4. Date range: GET /api/v1/audit-logs?startDt=2024-01-01T00:00:00&endDt=2024-01-31T23:59:59
-     * 
-     * @RequestParam(required = false):
-     * - Makes the parameter optional
-     * - If not provided in URL, value will be null
-     * - Allows multiple filtering options without creating separate endpoints
-     * 
-     * @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME):
-     * - Tells Spring how to parse date strings from URL
-     * - ISO format: 2024-01-28T14:30:00
-     * - Automatically converts string to LocalDateTime object
+     * URL: GET /api/v1/audit-logs?userId=1&action=LOGIN&startDt=2024-01-01T00:00:00
+     * Purpose: Retrieves audit logs with optional filtering
+     * Query Parameters:
+     *   - userId: Filter by specific user
+     *   - action: Filter by action type (LOGIN, LOGOUT, etc.)
+     *   - startDt/endDt: Filter by date range
+     * Response: List of audit logs
      */
     @GetMapping
     public ApiResponse<List<AuditLog>> getAuditLogs(
-            @RequestParam(required = false) Integer userId,
-            @RequestParam(required = false) String action,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDt,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDt) {
+            @RequestParam(required = false) Integer userId, // Optional filter by user
+            @RequestParam(required = false) String action, // Optional filter by action
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDt, // Start date
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDt) { // End date
         
-        /**
-         * CONDITIONAL FILTERING LOGIC
-         * ==========================
-         * This if-else chain determines which repository method to call based on provided filters
-         * Order matters: More specific filters first, general queries last
-         * 
-         * Priority:
-         * 1. userId - Most specific (one user's logs)
-         * 2. action - Specific action type (all users doing one action)
-         * 3. date range - Time-based filtering
-         * 4. all logs - No filter (fallback)
-         */
         List<AuditLog> logs;
         
-        // FILTER BY USER ID
-        // Get all actions performed by a specific user
+        // Apply filters based on what parameters are provided
         if (userId != null) {
+            // Find all logs for specific user, ordered newest first
             logs = auditRepo.findByUser_UserIdOrderByTimestampDesc(userId);
-            // findByUser_UserId - Navigates the relationship (AuditLog -> User -> userId)
-            // OrderByTimestampDesc - Newest logs first (most recent activity at top)
-        } 
-        // FILTER BY ACTION TYPE
-        // Get all logs of a specific action (e.g., all LOGIN attempts)
-        else if (action != null) {
+        } else if (action != null) {
+            // Find all logs for specific action type
             logs = auditRepo.findByActionOrderByTimestampDesc(action);
-        } 
-        // FILTER BY DATE RANGE
-        // Get logs within a specific time period
-        else if (startDt != null && endDt != null) {
+        } else if (startDt != null && endDt != null) {
+            // Find all logs within date range
             logs = auditRepo.findByTimestampBetweenOrderByTimestampDesc(startDt, endDt);
-            // Between - SQL BETWEEN operator for range queries
-        } 
-        // NO FILTER - GET ALL LOGS
-        // Fallback when no filters provided
-        else {
+        } else {
+            // No filters - return all logs
             logs = auditRepo.findAll();
-            // Warning: This could return thousands of records in production
-            // Consider adding pagination for large datasets
         }
         
-        // Return filtered logs wrapped in standard response
         return ApiResponse.success("Audit logs retrieved", logs);
     }
     
     /**
-     * EXPORT AUDIT LOGS
-     * =================
+     * Export Audit Logs
+     * 
      * URL: POST /api/v1/audit-logs/export
-     * Purpose: Generate downloadable file of audit logs for compliance/reporting
-     * 
-     * Why POST instead of GET?
-     * - Export is an action that creates a resource (file)
-     * - POST is semantically correct for creating resources
-     * - Allows passing complex filter criteria in request body (not shown here)
-     * 
-     * Request Body Example:
-     * {
-     *   "format": "CSV"  // or "EXCEL", "PDF", "JSON"
-     * }
-     * 
-     * Response Example:
-     * {
-     *   "success": true,
-     *   "message": "Audit logs export initiated",
-     *   "data": "/exports/audit_logs_1706457600000.csv"
-     * }
-     * 
-     * Current Implementation:
-     * - This is a PLACEHOLDER implementation
-     * - Real implementation would:
-     *   1. Query audit logs based on filters
-     *   2. Generate CSV/Excel/PDF file
-     *   3. Save file to storage (local disk or cloud)
-     *   4. Return download URL or file path
-     * 
-     * Production Considerations:
-     * - Large datasets: Use async processing (return job ID, notify when complete)
-     * - Storage: Save to cloud storage (AWS S3, Azure Blob)
-     * - Security: Generate temporary signed URLs for downloads
-     * - Cleanup: Auto-delete export files after 24 hours
+     * Purpose: Exports audit logs to file (CSV, JSON, etc.)
+     * Request Body: { "format": "CSV" }
+     * Response: File path where export is saved
+     * Note: This is a placeholder implementation
      */
     @PostMapping("/export")
-    @PreAuthorize("hasRole('ADMIN')")  // Double-check ADMIN role (redundant but explicit)
+    @PreAuthorize("hasRole('ADMIN')") // Redundant but explicit - only admins can export
     public ApiResponse<String> exportLogs(@RequestBody Map<String, String> body) {
-        // Extract desired format from request, default to CSV if not specified
-        String format = body.getOrDefault("format", "CSV");
-        
-        // Generate unique filename using current timestamp
+        String format = body.getOrDefault("format", "CSV"); // Default to CSV if not specified
+        // Generate unique filename with timestamp
         String filePath = "/exports/audit_logs_" + System.currentTimeMillis() + "." + format.toLowerCase();
-        
-        // TODO: Implement actual file generation logic here
-        // - Query audit logs
-        // - Convert to specified format (CSV/Excel/PDF)
-        // - Save to file system or cloud storage
-        
-        // Return file path where export will be available
+        // TODO: In real implementation, this would generate actual file using Apache POI or similar
         return ApiResponse.success("Audit logs export initiated", filePath);
     }
 }
@@ -359,198 +185,63 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * USER REPOSITORY
- * ==============
+ * User Repository
+ * 
  * Purpose: Database access layer for User entity
  * Extends: JpaRepository<User, Integer>
- *   - User: The entity this repository manages
- *   - Integer: The type of the primary key (userId)
- * 
- * What is a Repository?
- * - Interface between your application and the database
- * - Provides methods to Create, Read, Update, Delete (CRUD) data
- * - Spring Data JPA automatically implements these methods at runtime
- * 
- * How Spring Data JPA Works:
- * 1. You define an interface with method names following naming conventions
- * 2. Spring generates the implementation automatically (no code needed!)
- * 3. Spring converts method names to SQL queries
- * 
- * Example: findByEmail("john@example.com")
- * Spring generates: SELECT * FROM users WHERE email = 'john@example.com'
+ *   - User: Entity type
+ *   - Integer: Primary key type (userId)
+ * Provides: Automatic CRUD operations + custom query methods
  */
-@Repository  // Tells Spring this is a database repository bean
+@Repository // Marks this as a data access component
 public interface UserRepository extends JpaRepository<User, Integer> {
     
     /**
-     * INHERITED METHODS FROM JpaRepository
-     * ===================================
-     * You don't see these methods here, but they're automatically available:
+     * Find User by Email
      * 
-     * - save(User user) - Insert or update user
-     * - findById(Integer id) - Find user by ID
-     * - findAll() - Get all users
-     * - deleteById(Integer id) - Delete user by ID
-     * - count() - Count total users
-     * - existsById(Integer id) - Check if user exists
-     * 
-     * These are inherited from JpaRepository, so you get them for free!
-     */
-    
-    /**
-     * FIND USER BY EMAIL
-     * =================
-     * Method name: findByEmail
-     * Generated SQL: SELECT * FROM users WHERE email = ?
-     * 
-     * Return type: Optional<User>
-     * - Optional is a container that may or may not contain a value
-     * - Prevents NullPointerException by forcing explicit handling of "not found" case
-     * 
-     * Why Optional?
-     * - Email should be unique, so we expect 0 or 1 result
-     * - If user exists: Optional.of(user)
-     * - If not found: Optional.empty()
-     * 
-     * Usage in Service layer:
-     * Optional<User> userOpt = userRepo.findByEmail("john@example.com");
-     * if (userOpt.isPresent()) {
-     *     User user = userOpt.get();
-     *     // User found, proceed
-     * } else {
-     *     throw new UserNotFoundException();
-     * }
-     * 
-     * Or use modern Java style:
-     * User user = userRepo.findByEmail("john@example.com")
-     *                    .orElseThrow(() -> new UserNotFoundException());
+     * Purpose: Used for login authentication
+     * Query: SELECT * FROM users WHERE email = ?
+     * Returns: Optional<User> - empty if not found
+     * Spring Data JPA auto-generates this query from method name
      */
     Optional<User> findByEmail(String email);
     
     /**
-     * FIND USERS BY ROLE
-     * =================
-     * Method name: findByRole
-     * Generated SQL: SELECT * FROM users WHERE role = ?
+     * Find Users by Role
      * 
-     * Return type: List<User>
-     * - Returns all users with the specified role
-     * - Empty list if no users found (never null)
-     * 
-     * Use cases:
-     * - Get all managers: findByRole(UserRole.MANAGER)
-     * - Get all employees: findByRole(UserRole.EMPLOYEE)
-     * - Get all admins: findByRole(UserRole.ADMIN)
-     * 
-     * Example result:
-     * List<User> managers = userRepo.findByRole(UserRole.MANAGER);
-     * // Returns: [User{id=2, name="Alice"}, User{id=5, name="Bob"}]
+     * Purpose: Get all users with specific role (ADMIN, MANAGER, EMPLOYEE)
+     * Query: SELECT * FROM users WHERE role = ?
+     * Returns: List of users (empty list if none found)
      */
     List<User> findByRole(UserRole role);
     
     /**
-     * FIND USERS BY DEPARTMENT
-     * =======================
-     * Method name: findByDepartment
-     * Generated SQL: SELECT * FROM users WHERE department = ?
+     * Find Users by Department
      * 
-     * Use cases:
-     * - Get all IT department employees
-     * - Get all HR department employees
-     * - Department-wise reports
-     * 
-     * Example:
-     * List<User> itTeam = userRepo.findByDepartment("IT");
-     * System.out.println("IT Department size: " + itTeam.size());
+     * Purpose: Get all users in a department (HR, IT, Sales, etc.)
+     * Query: SELECT * FROM users WHERE department = ?
+     * Returns: List of users in that department
      */
     List<User> findByDepartment(String department);
     
     /**
-     * FIND USERS BY STATUS
-     * ===================
-     * Method name: findByStatus
-     * Generated SQL: SELECT * FROM users WHERE status = ?
+     * Find Users by Status
      * 
-     * UserStatus enum values: ACTIVE, INACTIVE, SUSPENDED
-     * 
-     * Use cases:
-     * - Get all active users for system operations
-     * - Get all inactive users for cleanup/archival
-     * - Get suspended users for review
-     * 
-     * Example:
-     * List<User> activeUsers = userRepo.findByStatus(UserStatus.ACTIVE);
-     * // Only active users can log in and use the system
+     * Purpose: Get active/inactive users
+     * Query: SELECT * FROM users WHERE status = ?
+     * Returns: List of users with that status
      */
     List<User> findByStatus(UserStatus status);
     
     /**
-     * FIND TEAM MEMBERS BY MANAGER
-     * ===========================
-     * Method name: findByManager_UserId
-     * Generated SQL: SELECT * FROM users WHERE manager_id = ?
+     * Find Team Members by Manager ID
      * 
-     * Relationship Navigation:
-     * - User entity has a field: @ManyToOne User manager
-     * - This creates a foreign key: manager_id in users table
-     * - Underscore (_) in method name navigates the relationship
-     * - findByManager_UserId means: find by manager.userId
-     * 
-     * Database Structure:
-     * users table:
-     * | user_id | name    | manager_id |
-     * |---------|---------|------------|
-     * | 1       | Alice   | null       | (Manager)
-     * | 2       | Bob     | 1          | (Reports to Alice)
-     * | 3       | Charlie | 1          | (Reports to Alice)
-     * | 4       | Diana   | 2          | (Reports to Bob)
-     * 
-     * Example Usage:
-     * List<User> aliceTeam = userRepo.findByManager_UserId(1);
-     * // Returns: [Bob, Charlie] - Alice's direct reports
-     * 
-     * List<User> bobTeam = userRepo.findByManager_UserId(2);
-     * // Returns: [Diana] - Bob's direct reports
-     * 
-     * Use cases:
-     * - Manager viewing their team
-     * - Organizational hierarchy
-     * - Performance review workflows
-     * - Goal approval chains
+     * Purpose: Get all employees reporting to a specific manager
+     * Query: SELECT * FROM users WHERE manager_id = ?
+     * Returns: List of employees under that manager
+     * Note: Uses manager relationship (manager_UserId refers to User.manager.userId)
      */
     List<User> findByManager_UserId(Integer managerId);
-    
-    /**
-     * SPRING DATA JPA NAMING CONVENTIONS
-     * ==================================
-     * 
-     * findBy + PropertyName:
-     * - findByEmail → WHERE email = ?
-     * - findByRole → WHERE role = ?
-     * 
-     * And / Or:
-     * - findByEmailAndStatus → WHERE email = ? AND status = ?
-     * - findByRoleOrDepartment → WHERE role = ? OR department = ?
-     * 
-     * Comparison operators:
-     * - findByAgeGreaterThan → WHERE age > ?
-     * - findByAgeLessThan → WHERE age < ?
-     * - findBySalaryBetween → WHERE salary BETWEEN ? AND ?
-     * 
-     * Pattern matching:
-     * - findByNameContaining → WHERE name LIKE %?%
-     * - findByEmailStartingWith → WHERE email LIKE ?%
-     * 
-     * Ordering:
-     * - findByRoleOrderByNameAsc → WHERE role = ? ORDER BY name ASC
-     * 
-     * Limiting results:
-     * - findTop3ByDepartment → WHERE department = ? LIMIT 3
-     * 
-     * Null handling:
-     * - findByManagerIsNull → WHERE manager IS NULL
-     * - findByManagerIsNotNull → WHERE manager IS NOT NULL
-     */
 }
 ```
 
@@ -570,343 +261,276 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * USER MANAGEMENT CONTROLLER
- * =========================
- * Purpose: Handles all user-related operations (CRUD operations on users)
- * Base URL: /api/v1/users
+ * User Management Controller
  * 
- * Access Control:
- * - Some endpoints require specific roles (ADMIN, MANAGER)
- * - @PreAuthorize annotation enforces role-based security
- * - JwtAuthFilter validates token before request reaches controller
- * 
- * Typical Flow:
- * Request → JwtAuthFilter → Security Check → Controller → Service → Repository → Database
+ * Purpose: CRUD operations for user management
+ * Access: Role-based (ADMIN, MANAGER, EMPLOYEE)
+ * Features: Create, read, update users, view team members
  */
 @RestController
-@RequestMapping("/api/v1/users")
+@RequestMapping("/api/v1/users") // Base URL for user operations
 public class UserController {
     
-    /**
-     * DEPENDENCY INJECTION
-     * UserService contains business logic for user operations
-     * Controller delegates to service, keeping controller thin and focused on HTTP handling
-     */
     @Autowired
-    private UserService userSvc;
+    private UserService userSvc; // Business logic layer
     
     /**
-     * GET ALL USERS
-     * ============
+     * Get All Users
+     * 
      * URL: GET /api/v1/users
-     * Access: ADMIN or MANAGER only
-     * Purpose: Retrieve list of all users in the system
-     * 
-     * @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')"):
-     * - hasAnyRole - User must have at least one of the specified roles
-     * - ADMIN: Can see all users for administration
-     * - MANAGER: Can see all users for team assignment, performance tracking
-     * 
-     * Why not EMPLOYEE?
-     * - Employees shouldn't see complete user list (privacy)
-     * - Employees only need to see their team members (separate endpoint)
-     * 
-     * Use cases:
-     * - Admin: User management dashboard
-     * - Manager: Assigning team members to projects
-     * - Manager: Viewing department structure
-     * 
-     * Response Example:
-     * {
-     *   "success": true,
-     *   "message": "Users retrieved",
-     *   "data": [
-     *     {"userId": 1, "name": "Alice", "email": "alice@company.com", "role": "ADMIN"},
-     *     {"userId": 2, "name": "Bob", "email": "bob@company.com", "role": "MANAGER"},
-     *     ...
-     *   ]
-     * }
+     * Purpose: Retrieve list of all users in system
+     * Response: List of User objects
+     * Access: ADMIN and MANAGER roles only
      */
-    @GetMapping  // Maps GET requests to /api/v1/users
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @GetMapping
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')") // Requires ADMIN OR MANAGER role
     public ApiResponse<List<User>> getAllUsers() {
-        List<User> users = userSvc.getAllUsers();  // Service fetches all users from database
+        List<User> users = userSvc.getAllUsers();
         return ApiResponse.success("Users retrieved", users);
     }
     
     /**
-     * GET USER BY ID
-     * =============
+     * Get User by ID
+     * 
      * URL: GET /api/v1/users/{userId}
-     * Access: Any authenticated user (no @PreAuthorize annotation)
-     * Purpose: Retrieve detailed information about a specific user
-     * 
-     * @PathVariable Integer userId:
-     * - Extracts userId from URL path
-     * - Example: GET /api/v1/users/5 → userId = 5
-     * - Spring automatically converts string "5" to Integer 5
-     * 
-     * No role restriction because:
-     * - Users can view their own profile
-     * - Employees can view colleague profiles (for collaboration)
-     * - Service layer should implement additional security:
-     *   * Employees can only view users in their department
-     *   * Or only view basic info (hide sensitive fields like salary)
-     * 
-     * Use cases:
-     * - User viewing their own profile
-     * - Manager viewing team member profile
-     * - Employee viewing colleague's contact info
-     * 
-     * Security Note:
-     * - Consider implementing in service: if (requesterId != userId && !isManager) throw Forbidden
-     * - Or return different detail levels based on role
+     * Example: GET /api/v1/users/5
+     * Purpose: Retrieve specific user details
+     * Response: Single User object
+     * Access: Any authenticated user (can view others' profiles)
      */
-    @GetMapping("/{userId}")  // {userId} is a path variable
+    @GetMapping("/{userId}")
     public ApiResponse<User> getUserById(@PathVariable Integer userId) {
-        User user = userSvc.getUserById(userId);  // Service fetches user by ID
+        // @PathVariable - Extracts userId from URL path
+        User user = userSvc.getUserById(userId);
         return ApiResponse.success("User retrieved", user);
     }
     
     /**
-     * CREATE NEW USER
-     * ==============
+     * Create New User
+     * 
      * URL: POST /api/v1/users
+     * Purpose: Add new user to the system
+     * Request Body: { "name": "John Doe", "email": "john@example.com", ... }
+     * Response: Created User object
      * Access: ADMIN only
-     * Purpose: Create a new user account in the system
-     * 
-     * @Valid @RequestBody CreateUserRequest req:
-     * - @RequestBody: Converts JSON from request body to CreateUserRequest object
-     * - @Valid: Triggers validation rules defined in CreateUserRequest DTO
-     * 
-     * CreateUserRequest Example:
-     * {
-     *   "email": "newuser@company.com",
-     *   "name": "John Doe",
-     *   "role": "EMPLOYEE",
-     *   "department": "IT",
-     *   "managerId": 2
-     * }
-     * 
-     * Validation in CreateUserRequest:
-     * - @NotBlank String email - Email cannot be empty
-     * - @Email String email - Must be valid email format
-     * - @NotNull UserRole role - Role is required
-     * - @Size(min=2, max=100) String name - Name length constraints
-     * 
-     * HttpServletRequest httpReq:
-     * - Used to extract adminId from request attributes
-     * - adminId is set by JwtAuthFilter after token validation
-     * - We need adminId for audit logging (who created this user)
-     * 
-     * Security Flow:
-     * 1. Only ADMIN can create users (enforced by @PreAuthorize)
-     * 2. Service validates business rules (email unique, valid manager ID)
-     * 3. Service hashes default password
-     * 4. Service creates user in database
-     * 5. Service logs audit trail (Admin X created User Y)
-     * 
-     * Why ADMIN only?
-     * - Creating users affects system access and security
-     * - Prevents unauthorized account creation
-     * - Ensures proper onboarding process
+     * Audit: Logs who created the user (adminId)
      */
-    @PostMapping  // Maps POST requests to /api/v1/users
-    @PreAuthorize("hasRole('ADMIN')")
+    @PostMapping
+    @PreAuthorize("hasRole('ADMIN')") // Only admins can create users
     public ApiResponse<User> createUser(@Valid @RequestBody CreateUserRequest req, 
                                         HttpServletRequest httpReq) {
-        // Extract admin's ID for audit logging
+        // Get ID of admin performing the action (for audit trail)
         Integer adminId = (Integer) httpReq.getAttribute("userId");
-        
-        // Delegate user creation to service layer
-        User user = userSvc.createUser(req, adminId);
-        
-        // Return created user (with generated ID, timestamps, etc.)
+        User user = userSvc.createUser(req, adminId); // Service creates user and logs action
         return ApiResponse.success("User created", user);
     }
     
     /**
-     * UPDATE USER
-     * ==========
+     * Update Existing User
+     * 
      * URL: PUT /api/v1/users/{userId}
+     * Example: PUT /api/v1/users/5
+     * Purpose: Update user details (name, email, role, department, etc.)
+     * Request Body: { "name": "John Updated", ... }
+     * Response: Updated User object
      * Access: ADMIN only
-     * Purpose: Update existing user's information
-     * 
-     * @PathVariable Integer userId:
-     * - ID of user to update from URL
-     * - Example: PUT /api/v1/users/5 → Update user with ID 5
-     * 
-     * @Valid @RequestBody CreateUserRequest req:
-     * - Note: We reuse CreateUserRequest DTO for updates
-     * - This is common practice when create/update fields are similar
-     * - Alternative: Create separate UpdateUserRequest DTO if fields differ
-     * 
-     * Update vs Create:
-     * - Create: userId doesn't exist yet, generated by database
-     * - Update: userId exists, we're modifying existing record
-     * 
-     * What can be updated?
-     * - Name, email, department, role, manager, status
-     * - Password: Separate endpoint (change-password)
-     * - userId: Never (primary key is immutable)
-     * 
-     * Service layer logic:
-     * 1. Verify user exists (throw UserNotFoundException if not)
-     * 2. Validate new data (email uniqueness, valid manager ID)
-     * 3. Update only changed fields (optimistic approach)
-     * 4. Log audit trail (Admin X updated User Y)
-     * 
-     * Security considerations:
-     * - Admin can change user's role (promote to manager, demote to employee)
-     * - Admin can deactivate users (status = INACTIVE)
-     * - Admin can reassign reporting structure (change manager)
-     * - Consider adding approval workflow for critical changes
-     * 
-     * Response:
-     * - Returns updated User object with all current values
-     * - Frontend can update UI with latest data
+     * Audit: Logs who updated the user
      */
-    @PutMapping("/{userId}")  // PUT is idempotent (same request multiple times = same result)
+    @PutMapping("/{userId}")
     @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<User> updateUser(@PathVariable Integer userId,
                                         @Valid @RequestBody CreateUserRequest req,
                                         HttpServletRequest httpReq) {
-        // Extract admin's ID for audit logging
-        Integer adminId = (Integer) httpReq.getAttribute("userId");
-        
-        // Delegate update to service layer
+        Integer adminId = (Integer) httpReq.getAttribute("userId"); // For audit trail
         User user = userSvc.updateUser(userId, req, adminId);
-        
-        // Return updated user
         return ApiResponse.success("User updated", user);
     }
     
     /**
-     * GET TEAM MEMBERS
-     * ===============
+     * Get Team Members
+     * 
      * URL: GET /api/v1/users/{userId}/team
-     * Access: MANAGER only
-     * Purpose: Get list of direct reports (team members) for a manager
-     * 
-     * @PathVariable Integer userId:
-     * - ID of the manager whose team we want to retrieve
-     * - Example: GET /api/v1/users/2/team → Get manager #2's team
-     * 
-     * Why MANAGER only?
-     * - Managers need to see their team for:
-     *   * Performance reviews
-     *   * Goal approval
-     *   * Task assignment
-     *   * Leave approvals
-     * - Employees don't manage others, so they don't need this
-     * - Admins can see all users via getAllUsers() endpoint
-     * 
-     * Security Enhancement (recommended):
-     * Service should verify: requesterId == userId
-     * - Ensures managers can only see THEIR OWN team
-     * - Prevents Manager A from viewing Manager B's team
-     * 
-     * Example:
-     * public List<User> getTeamMembers(Integer managerId, Integer requesterId) {
-     *     if (!managerId.equals(requesterId)) {
-     *         throw new UnauthorizedException("Cannot view other manager's team");
-     *     }
-     *     return userRepo.findByManager_UserId(managerId);
-     * }
-     * 
-     * Database Query:
-     * - Uses UserRepository.findByManager_UserId(managerId)
-     * - SQL: SELECT * FROM users WHERE manager_id = ?
-     * - Returns all users who report to this manager
-     * 
-     * Organizational Structure Example:
-     * 
-     * Alice (MANAGER, userId=2)
-     * ├── Bob (EMPLOYEE, userId=5)
-     * ├── Charlie (EMPLOYEE, userId=7)
-     * └── Diana (EMPLOYEE, userId=9)
-     * 
-     * GET /api/v1/users/2/team returns: [Bob, Charlie, Diana]
-     * 
-     * Use cases:
-     * - Manager dashboard showing team overview
-     * - Performance review period - manager sees reviewees
-     * - Goal setting - manager assigns goals to team
-     * - Leave approval - manager sees who's on their team
-     * 
-     * Response Example:
-     * {
-     *   "success": true,
-     *   "message": "Team members retrieved",
-     *   "data": [
-     *     {
-     *       "userId": 5,
-     *       "name": "Bob",
-     *       "email": "bob@company.com",
-     *       "role": "EMPLOYEE",
-     *       "department": "IT"
-     *     },
-     *     {
-     *       "userId": 7,
-     *       "name": "Charlie",
-     *       "email": "charlie@company.com",
-     *       "role": "EMPLOYEE",
-     *       "department": "IT"
-     *     }
-     *   ]
-     * }
+     * Example: GET /api/v1/users/3/team
+     * Purpose: Get all employees reporting to a manager
+     * Response: List of User objects (team members)
+     * Access: MANAGER role only
+     * Use Case: Manager viewing their direct reports
      */
-    @GetMapping("/{userId}/team")  // Nested resource: users/{id}/team
-    @PreAuthorize("hasRole('MANAGER')")
+    @GetMapping("/{userId}/team")
+    @PreAuthorize("hasRole('MANAGER')") // Only managers can view teams
     public ApiResponse<List<User>> getTeam(@PathVariable Integer userId) {
-        // Fetch team members from service
-        List<User> team = userSvc.getTeamMembers(userId);
-        
-        // Return team list
+        List<User> team = userSvc.getTeamMembers(userId); // Gets users where manager_id = userId
         return ApiResponse.success("Team members retrieved", team);
     }
 }
-
-/**
- * ARCHITECTURAL NOTES
- * ==================
- * 
- * 1. Controller Responsibilities:
- *    - Receive HTTP requests
- *    - Validate request format (@Valid)
- *    - Enforce security (@PreAuthorize)
- *    - Delegate to service layer
- *    - Return standardized responses (ApiResponse)
- * 
- * 2. What Controller Should NOT Do:
- *    - Business logic (goes in service)
- *    - Database queries (goes in repository)
- *    - Complex validation (goes in service)
- *    - Transaction management (service layer handles this)
- * 
- * 3. RESTful URL Design:
- *    - /users - Collection resource
- *    - /users/{id} - Single resource
- *    - /users/{id}/team - Sub-resource (nested)
- *    - Use nouns, not verbs (❌ /users/getById, ✅ /users/{id})
- * 
- * 4. HTTP Methods:
- *    - GET: Retrieve data (no side effects, idempotent)
- *    - POST: Create new resource
- *    - PUT: Update existing resource (full replacement)
- *    - PATCH: Partial update (not used here)
- *    - DELETE: Remove resource (not implemented here)
- * 
- * 5. Security Layers:
- *    - JwtAuthFilter: Validates token, extracts userId
- *    - @PreAuthorize: Role-based authorization
- *    - Service layer: Business logic authorization (own data vs others' data)
- * 
- * 6. Error Handling (not shown here):
- *    - Should have @ExceptionHandler methods
- *    - Or global @ControllerAdvice for consistent error responses
- *    - Map exceptions to HTTP status codes
- */
 ```
 
-These comments explain **why** we do things, **how** they work under the hood, and **what** the real-world implications are - perfect for understanding at a trainee level!
+```java
+package com.project.performanceTrack.service;
+
+import com.project.performanceTrack.dto.LoginRequest;
+import com.project.performanceTrack.dto.LoginResponse;
+import com.project.performanceTrack.entity.AuditLog;
+import com.project.performanceTrack.entity.User;
+import com.project.performanceTrack.exception.UnauthorizedException;
+import com.project.performanceTrack.repository.AuditLogRepository;
+import com.project.performanceTrack.repository.UserRepository;
+import com.project.performanceTrack.util.JwtUtil;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+
+/**
+ * Authentication Service
+ * 
+ * Purpose: Business logic for authentication operations
+ * Functions: Login validation, token generation, password management, audit logging
+ * Security: Uses BCrypt password hashing and JWT tokens
+ */
+@Service // Marks this as a service layer component
+public class AuthService {
+    
+    @Autowired
+    private UserRepository userRepo; // Database access for users
+    
+    @Autowired
+    private PasswordEncoder pwdEncoder; // BCrypt password hasher
+    
+    @Autowired
+    private JwtUtil jwtUtil; // JWT token generator/validator
+    
+    @Autowired
+    private AuditLogRepository auditRepo; // Database access for audit logs
+    
+    /**
+     * User Login Method
+     * 
+     * Process:
+     * 1. Find user by email
+     * 2. Verify password matches hash in database
+     * 3. Check if user account is active
+     * 4. Generate JWT token
+     * 5. Log successful login
+     * 6. Return token and user details
+     * 
+     * Security: Passwords never stored in plain text, only BCrypt hashes
+     */
+    public LoginResponse login(LoginRequest req) {
+        // Step 1: Find user by email
+        User user = userRepo.findByEmail(req.getEmail())
+                .orElseThrow(() -> new UnauthorizedException("Invalid email or password"));
+        // Note: Generic error message prevents user enumeration attacks
+        
+        // Step 2: Verify password
+        if (!pwdEncoder.matches(req.getPassword(), user.getPasswordHash())) {
+            // pwdEncoder.matches() - Compares plain text password with BCrypt hash
+            throw new UnauthorizedException("Invalid email or password");
+        }
+        
+        // Step 3: Check if user account is active
+        if (user.getStatus().name().equals("INACTIVE")) {
+            throw new UnauthorizedException("Account is inactive");
+        }
+        
+        // Step 4: Generate JWT token
+        // Token contains: email, userId, role (encoded and signed)
+        String token = jwtUtil.generateToken(
+            user.getEmail(), 
+            user.getUserId(), 
+            user.getRole().name()
+        );
+        
+        // Step 5: Create audit log for successful login
+        AuditLog log = new AuditLog();
+        log.setUser(user); // Link log to user
+        log.setAction("LOGIN"); // Action type
+        log.setDetails("User logged in successfully"); // Action description
+        log.setStatus("SUCCESS"); // Result status
+        log.setTimestamp(LocalDateTime.now()); // When it happened
+        auditRepo.save(log); // Save to database
+        
+        // Step 6: Return login response with token and user info
+        return new LoginResponse(
+            token, // JWT token for future requests
+            user.getUserId(),
+            user.getName(),
+            user.getEmail(),
+            user.getRole(),
+            user.getDepartment()
+        );
+    }
+    
+    /**
+     * User Logout Method
+     * 
+     * Process:
+     * 1. Find user by ID
+     * 2. Create audit log entry
+     * 
+     * Note: JWT tokens are stateless, so logout only creates audit trail
+     * Token remains valid until expiration (typically handled client-side)
+     */
+    public void logout(Integer userId) {
+        User user = userRepo.findById(userId).orElse(null);
+        if (user != null) {
+            // Create audit log for logout action
+            AuditLog log = new AuditLog();
+            log.setUser(user);
+            log.setAction("LOGOUT");
+            log.setDetails("User logged out");
+            log.setStatus("SUCCESS");
+            log.setTimestamp(LocalDateTime.now());
+            auditRepo.save(log);
+        }
+        // If user not found, silently ignore (already logged out or invalid)
+    }
+    
+    /**
+     * Change Password Method
+     * 
+     * Process:
+     * 1. Find user by ID
+     * 2. Verify old password is correct
+     * 3. Hash and save new password
+     * 4. Create audit log
+     * 
+     * Security: 
+     * - Requires old password verification (prevents unauthorized changes)
+     * - New password is BCrypt hashed before storage
+     * - Action is logged for security audit
+     */
+    public void changePassword(Integer userId, String oldPwd, String newPwd) {
+        // Step 1: Find user
+        User user = userRepo.findById(userId)
+                .orElseThrow(() -> new UnauthorizedException("User not found"));
+        
+        // Step 2: Verify old password is correct
+        if (!pwdEncoder.matches(oldPwd, user.getPasswordHash())) {
+            throw new UnauthorizedException("Current password is incorrect");
+        }
+        
+        // Step 3: Update password with new hash
+        user.setPasswordHash(pwdEncoder.encode(newPwd)); // BCrypt hash new password
+        userRepo.save(user); // Save to database
+        
+        // Step 4: Create audit log
+        AuditLog log = new AuditLog();
+        log.setUser(user);
+        log.setAction("PASSWORD_CHANGED");
+        log.setDetails("User changed password");
+        log.setStatus("SUCCESS");
+        log.setTimestamp(LocalDateTime.now());
+        auditRepo.save(log);
+    }
+}
+```
+
+**Key Concepts Summary:**
+
+1. **Controller Layer**: Handles HTTP requests/responses, validates input, manages authorization
+2. **Service Layer**: Contains business logic, coordinates between repositories
+3. **Repository Layer**: Database access using Spring Data JPA
+4. **Security**: JWT tokens, BCrypt password hashing, role-based access control
+5. **Audit Trail**: All important actions logged for compliance/security
