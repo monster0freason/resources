@@ -1,1032 +1,1051 @@
-# Advanced Features Implementation Plan for PerformanceTrack
+# PerformanceTrack Enhancement Plan - Professional Enterprise Features
 
-## Overview
-I'll create a comprehensive plan to add enterprise-grade features to your PerformanceTrack system. Let me break this down into strategic implementation areas with detailed user stories and tasks.
+I'll create a detailed plan for adding these enterprise features while keeping the project structure intact and changes minimal. Let me break this down into manageable user stories and tasks.
 
 ---
 
-# 📋 EPIC 11: SCHEDULER & AUTOMATED TASKS
+## 📋 EPIC 11: ENTERPRISE FEATURES ENHANCEMENT
 
-## User Story 11.1: Review Cycle Deadline Reminders
+### Owner: Ankit (Lead), Support from All Team Members
+
+---
+
+## 🎯 ENHANCEMENT OVERVIEW
+
+### Features to Add:
+1. **Schedulers** - Automated tasks for maintenance and notifications
+2. **Logging (SLF4J + Logback)** - Comprehensive application logging
+3. **Multi-Profile Maven Setup** - Parent POM with dev/test/prod profiles
+4. **Utility Classes** - Reusable notification and audit utilities
+5. **Rate Limiting** - API throttling for security
+6. **Pagination** - Efficient data retrieval for large datasets
+
+---
+
+## 📊 PRIORITY MATRIX
+
+| Feature | Priority | Complexity | Impact | Stories |
+|---------|----------|------------|--------|---------|
+| Logging | HIGH | LOW | HIGH | 1 |
+| Utility Classes | HIGH | LOW | HIGH | 1 |
+| Pagination | HIGH | MEDIUM | HIGH | 1 |
+| Maven Profiles | MEDIUM | LOW | MEDIUM | 1 |
+| Schedulers | MEDIUM | MEDIUM | MEDIUM | 1 |
+| Rate Limiting | LOW | MEDIUM | MEDIUM | 1 |
+
+---
+
+## 🔧 USER STORY 11.1: LOGGING INFRASTRUCTURE
+
+**As a developer/operations team**  
+**I want comprehensive logging throughout the application**  
+**So that I can debug issues and monitor application health**
+
+### Tasks - Ankit (Lead: 4 hours)
+
+#### 11.1.1: Logback Configuration (1 hour)
+- [ ] Create `src/main/resources/logback-spring.xml`
+- [ ] Configure log levels by environment:
+  - **DEV**: DEBUG for com.project.performanceTrack, INFO for others
+  - **TEST**: INFO for all
+  - **PROD**: WARN for application, ERROR for others
+- [ ] Setup log file rotation:
+  - Daily rollover
+  - Max file size: 10MB
+  - Keep 30 days of logs
+- [ ] Configure console appender for development
+- [ ] Configure file appender for production (`/var/log/performancetrack/`)
+
+#### 11.1.2: Logging Pattern Standardization (1 hour)
+- [ ] Define log format pattern:
+  ```
+  %d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n
+  ```
+- [ ] Add correlation ID pattern for request tracking
+- [ ] Document logging levels:
+  - **ERROR**: System failures, exceptions
+  - **WARN**: Business rule violations, potential issues
+  - **INFO**: Business events (login, goal created, review submitted)
+  - **DEBUG**: Detailed flow information (method entry/exit, variable values)
+  - **TRACE**: Very detailed debugging (SQL queries, JSON payloads)
+
+#### 11.1.3: Strategic Logging Implementation (1.5 hours)
+- [ ] **Controllers**: Log incoming requests and responses
+  - Entry: `log.info("Received {} request: {}", method, endpoint)`
+  - Exit: `log.info("Returning response with status: {}", status)`
+  - Error: `log.error("Error processing request", exception)`
+  
+- [ ] **Services**: Log business operations
+  - Entry: `log.debug("Executing {}.{} with params: {}", class, method, params)`
+  - Success: `log.info("Successfully completed: {}", operation)`
+  - Validation: `log.warn("Validation failed: {}", reason)`
+  - Error: `log.error("Operation failed: {}", operation, exception)`
+
+- [ ] **Security**: Log authentication/authorization
+  - Success: `log.info("User {} logged in successfully", email)`
+  - Failure: `log.warn("Failed login attempt for user: {}", email)`
+  - Access Denied: `log.warn("Access denied for user {} to resource {}", userId, resource)`
+
+- [ ] **Repository/Database**: Log slow queries (optional)
+  - Slow query: `log.warn("Slow query detected: {} ms", executionTime)`
+
+#### 11.1.4: Sensitive Data Protection (0.5 hours)
+- [ ] Create custom log sanitizer to mask:
+  - Passwords: `password=***`
+  - JWT tokens: `token=***`
+  - Email (partial): `r***@company.com`
+- [ ] Document sensitive fields to never log
+- [ ] Add unit tests for sanitizer
+
+### Acceptance Criteria
+✅ All layers (Controller, Service, Repository) have appropriate logging  
+✅ Log files rotate daily and maintain 30-day history  
+✅ Different log levels configured per environment  
+✅ No sensitive data (passwords, full tokens) in logs  
+✅ Console logs readable during development  
+✅ File logs structured for production monitoring  
+
+### Implementation Locations
+| File/Package | Logging Focus |
+|--------------|---------------|
+| `AuthController` | Login/logout/password change |
+| `AuthService` | Authentication logic, token generation |
+| `GoalService` | Goal CRUD, approval workflow |
+| `PerformanceReviewService` | Review workflow |
+| `JwtAuthFilter` | Token validation |
+| `GlobalExceptionHandler` | Exception details |
+
+---
+
+## 🛠️ USER STORY 11.2: UTILITY CLASSES FOR NOTIFICATION & AUDIT
+
+**As a developer**  
+**I want reusable utility classes for notifications and audit logs**  
+**So that I can reduce code duplication and maintain consistency**
+
+### Tasks - Ankit (Lead: 3 hours)
+
+#### 11.2.1: Notification Utility Class (1.5 hours)
+- [ ] Create `com.project.performanceTrack.util.NotificationUtil`
+- [ ] Implement methods:
+  ```java
+  // Goal-related notifications
+  void notifyGoalSubmitted(User employee, User manager, Goal goal)
+  void notifyGoalApproved(User employee, Goal goal)
+  void notifyGoalChangeRequested(User employee, Goal goal, String comments)
+  void notifyGoalResubmitted(User manager, User employee, Goal goal)
+  void notifyGoalCompletionSubmitted(User manager, User employee, Goal goal)
+  void notifyGoalCompletionApproved(User employee, Goal goal)
+  void notifyAdditionalEvidenceRequired(User employee, Goal goal, String reason)
+  
+  // Review-related notifications
+  void notifySelfAssessmentSubmitted(User manager, User employee, PerformanceReview review)
+  void notifyReviewCompleted(User employee, PerformanceReview review)
+  void notifyReviewAcknowledged(User manager, User employee)
+  
+  // User-related notifications
+  void notifyAccountCreated(User user)
+  
+  // Reminder notifications
+  void notifyReviewCycleEnding(User user, ReviewCycle cycle, int daysRemaining)
+  void notifyPendingApprovals(User manager, int pendingCount)
+  ```
+
+- [ ] Add priority mapping:
+  - `HIGH`: Completion approvals, password changes
+  - `MEDIUM`: Goal submissions, review submissions
+  - `LOW`: Reminders, acknowledgments
+
+- [ ] Set `actionRequired` flag logic:
+  - `true`: Pending approvals, change requests
+  - `false`: Informational notifications
+
+- [ ] Inject `NotificationRepository` via constructor
+- [ ] Add `@Component` annotation
+- [ ] Add logging to each utility method
+- [ ] Write unit tests with Mockito
+
+#### 11.2.2: Audit Utility Class (1.5 hours)
+- [ ] Create `com.project.performanceTrack.util.AuditUtil`
+- [ ] Implement methods:
+  ```java
+  // Authentication audits
+  void logLogin(User user, String ipAddress, boolean success)
+  void logLogout(User user)
+  void logPasswordChange(User user)
+  
+  // User management audits
+  void logUserCreated(User admin, User newUser)
+  void logUserUpdated(User admin, User updatedUser)
+  
+  // Goal audits
+  void logGoalCreated(User employee, Goal goal)
+  void logGoalApproved(User manager, Goal goal)
+  void logGoalUpdated(User employee, Goal goal, String changeType)
+  void logGoalCompletionSubmitted(User employee, Goal goal)
+  void logGoalCompletionApproved(User manager, Goal goal)
+  
+  // Review audits
+  void logSelfAssessmentSubmitted(User employee, PerformanceReview review)
+  void logManagerReviewSubmitted(User manager, PerformanceReview review)
+  void logReviewAcknowledged(User employee, PerformanceReview review)
+  
+  // Review cycle audits
+  void logReviewCycleCreated(User admin, ReviewCycle cycle)
+  void logReviewCycleUpdated(User admin, ReviewCycle cycle)
+  
+  // Report audits
+  void logReportGenerated(User user, Report report)
+  
+  // Generic audit method
+  void logAction(User user, String action, String details, 
+                 String entityType, Integer entityId, String status)
+  ```
+
+- [ ] Auto-capture timestamp in all methods
+- [ ] Extract IP address from `HttpServletRequest` (optional parameter)
+- [ ] Inject `AuditLogRepository` via constructor
+- [ ] Add `@Component` annotation
+- [ ] Add logging to utility methods
+- [ ] Write unit tests
+
+#### 11.2.3: Refactor Existing Code to Use Utilities (Same as above tasks - minimal changes)
+- [ ] Replace notification creation in `GoalService` with `NotificationUtil` calls
+- [ ] Replace notification creation in `PerformanceReviewService` with `NotificationUtil` calls
+- [ ] Replace notification creation in `UserService` with `NotificationUtil` calls
+- [ ] Replace audit log creation in all services with `AuditUtil` calls
+- [ ] Remove duplicate code
+- [ ] Run regression tests to ensure no functionality broken
+
+### Acceptance Criteria
+✅ All notification creation uses `NotificationUtil`  
+✅ All audit log creation uses `AuditUtil`  
+✅ Code duplication reduced by >60%  
+✅ Utilities are well-documented with Javadoc  
+✅ Unit tests achieve >90% coverage on utilities  
+✅ Existing functionality unchanged (regression tests pass)  
+
+### Refactoring Impact
+| Service | Before (Lines) | After (Lines) | Reduction |
+|---------|---------------|---------------|-----------|
+| `GoalService` | ~500 | ~350 | 30% |
+| `PerformanceReviewService` | ~350 | ~250 | 28% |
+| `UserService` | ~200 | ~150 | 25% |
+| `AuthService` | ~150 | ~120 | 20% |
+
+---
+
+## 📄 USER STORY 11.3: PAGINATION FOR LIST ENDPOINTS
+
+**As a frontend developer**  
+**I want paginated responses for list APIs**  
+**So that large datasets load efficiently**
+
+### Tasks - Kashish (Lead: 2 hours)
+
+#### 11.3.1: Pagination Infrastructure (0.5 hours)
+- [ ] Add Spring Data Commons dependency (already included)
+- [ ] Create `PageResponse<T>` wrapper class:
+  ```java
+  @Data
+  public class PageResponse<T> {
+      private List<T> content;
+      private int pageNumber;
+      private int pageSize;
+      private long totalElements;
+      private int totalPages;
+      private boolean first;
+      private boolean last;
+  }
+  ```
+- [ ] Create utility method in `ApiResponse`:
+  ```java
+  public static <T> ApiResponse<PageResponse<T>> success(String msg, Page<T> page)
+  ```
+
+#### 11.3.2: Update Repository Methods (0.5 hours)
+- [ ] **GoalRepository**: Change return types from `List<Goal>` to `Page<Goal>`
+  - `findByAssignedToUser_UserId(Integer userId, Pageable pageable)`
+  - `findByAssignedManager_UserId(Integer managerId, Pageable pageable)`
+  - `findByStatus(GoalStatus status, Pageable pageable)`
+
+- [ ] **PerformanceReviewRepository**: Change return types
+  - `findByUser_UserId(Integer userId, Pageable pageable)`
+  - `findByCycle_CycleId(Integer cycleId, Pageable pageable)`
+
+- [ ] **NotificationRepository**: Change return types
+  - `findByUser_UserIdOrderByCreatedDateDesc(Integer userId, Pageable pageable)`
+  - `findByUser_UserIdAndStatusOrderByCreatedDateDesc(Integer userId, NotificationStatus status, Pageable pageable)`
+
+- [ ] **AuditLogRepository**: Change return types
+  - `findByUser_UserIdOrderByTimestampDesc(Integer userId, Pageable pageable)`
+  - `findByActionOrderByTimestampDesc(String action, Pageable pageable)`
+
+#### 11.3.3: Update Service Layer (0.5 hours)
+- [ ] Update `GoalService.getGoalsByUser()` to accept `Pageable`
+- [ ] Update `GoalService.getGoalsByManager()` to accept `Pageable`
+- [ ] Update `PerformanceReviewService.getReviewsByUser()` to accept `Pageable`
+- [ ] Update `PerformanceReviewService.getReviewsByCycle()` to accept `Pageable`
+- [ ] Update `NotificationController` methods to accept `Pageable`
+
+#### 11.3.4: Update Controllers (0.5 hours)
+- [ ] Add `Pageable` parameters to controller methods:
+  ```java
+  @GetMapping
+  public ApiResponse<PageResponse<Goal>> getGoals(
+      HttpServletRequest httpReq,
+      @RequestParam(required = false) Integer userId,
+      @RequestParam(required = false) Integer mgrId,
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "20") int size,
+      @RequestParam(defaultValue = "createdDate") String sortBy,
+      @RequestParam(defaultValue = "DESC") String sortDir
+  )
+  ```
+
+- [ ] Create `PageRequest` objects:
+  ```java
+  Sort sort = sortDir.equalsIgnoreCase("ASC") ? 
+      Sort.by(sortBy).ascending() : 
+      Sort.by(sortBy).descending();
+  Pageable pageable = PageRequest.of(page, size, sort);
+  ```
+
+- [ ] Return `PageResponse` wrapped in `ApiResponse`
+
+- [ ] Update endpoints:
+  - `GET /api/v1/goals`
+  - `GET /api/v1/performance-reviews`
+  - `GET /api/v1/notifications`
+  - `GET /api/v1/audit-logs`
+  - `GET /api/v1/users` (optional)
+
+#### 11.3.5: Testing & Documentation (Same as above)
+- [ ] Update Postman collection with pagination parameters
+- [ ] Add examples:
+  - Default: `GET /api/v1/goals?page=0&size=20`
+  - Custom: `GET /api/v1/goals?page=1&size=10&sortBy=title&sortDir=ASC`
+- [ ] Test with large datasets (100+ records)
+- [ ] Update API documentation (Swagger)
+
+### Acceptance Criteria
+✅ All list endpoints support pagination (page, size, sortBy, sortDir)  
+✅ Default page size is 20  
+✅ Maximum page size enforced (e.g., 100)  
+✅ Response includes pagination metadata (totalElements, totalPages)  
+✅ Sorting works for multiple fields  
+✅ Postman tests updated with pagination examples  
+✅ Performance improved for large datasets  
+
+### Pagination Endpoints
+| Endpoint | Default Sort | Sortable Fields |
+|----------|--------------|-----------------|
+| `/api/v1/goals` | `createdDate DESC` | title, priority, status, startDate, endDate, createdDate |
+| `/api/v1/performance-reviews` | `createdDate DESC` | status, submittedDate, reviewCompletedDate |
+| `/api/v1/notifications` | `createdDate DESC` | createdDate, status, priority |
+| `/api/v1/audit-logs` | `timestamp DESC` | timestamp, action, user |
+
+---
+
+## 🗓️ USER STORY 11.4: SCHEDULED TASKS
+
 **As a system administrator**  
-**I want automated reminders for upcoming review deadlines**  
-**So that employees and managers don't miss important review milestones**
+**I want automated scheduled tasks**  
+**So that maintenance and notifications happen automatically**
 
-### Priority: HIGH
-### Owner: Ankit
+### Tasks - Pratik (Lead: 3 hours)
 
-### Tasks:
-1. **Create Scheduled Task Infrastructure**
-   - Add Spring Scheduler dependency (`@EnableScheduling`)
-   - Create `@Configuration` class for scheduler settings
-   - Configure thread pool for scheduled tasks (minimum 5 threads)
+#### 11.4.1: Enable Scheduling (0.5 hours)
+- [ ] Add `@EnableScheduling` to main application class
+- [ ] Create `com.project.performanceTrack.scheduler` package
+- [ ] Create `SchedulerConfig` class for configuration
+- [ ] Configure thread pool size for schedulers:
+  ```java
+  @Configuration
+  public class SchedulerConfig implements SchedulingConfigurer {
+      @Override
+      public void configureTasks(ScheduledTaskRegistrar taskRegistrar) {
+          taskRegistrar.setScheduler(taskExecutor());
+      }
+      
+      @Bean
+      public Executor taskExecutor() {
+          return Executors.newScheduledThreadPool(5);
+      }
+  }
+  ```
 
-2. **Implement Review Deadline Reminder Job**
-   - Create `ReviewReminderScheduler` class with `@Component`
-   - Add method `checkUpcomingReviewDeadlines()` with `@Scheduled(cron = "0 0 9 * * ?")`  // Daily at 9 AM
-   - Query active review cycles ending in 30, 15, 7, 3, 1 days
-   - For each milestone, find employees without submitted self-assessment
-   - Create notifications for employees and their managers
-   - Log reminder execution in audit logs
+#### 11.4.2: Notification Reminder Scheduler (1 hour)
+- [ ] Create `NotificationScheduler` class
+- [ ] Inject `NotificationUtil`, `GoalRepository`, `ReviewCycleRepository`, `UserRepository`
 
-3. **Configure Reminder Thresholds**
-   - Create `application.properties` entries:
-     ```
-     scheduler.review.reminder.days=30,15,7,3,1
-     scheduler.review.reminder.enabled=true
-     ```
-   - Make reminder days configurable per review cycle
+**Task 1: Pending Approval Reminders (Daily at 9 AM)**
+```java
+@Scheduled(cron = "0 0 9 * * *") // Every day at 9 AM
+public void sendPendingApprovalReminders()
+```
+- [ ] Find all managers with pending goal approvals (status = PENDING, older than 2 days)
+- [ ] Count pending goals per manager
+- [ ] Send notification: "You have X pending goal approvals"
+- [ ] Log execution
 
-### Acceptance Criteria:
-- ✅ Scheduler runs daily at 9 AM
-- ✅ Reminders sent at 30, 15, 7, 3, 1 day milestones
-- ✅ Only users without submitted assessments notified
-- ✅ Can disable scheduler via config
-- ✅ Execution logged in audit trail
+**Task 2: Review Cycle Ending Reminders (Daily at 10 AM)**
+```java
+@Scheduled(cron = "0 0 10 * * *") // Every day at 10 AM
+public void sendReviewCycleEndingReminders()
+```
+- [ ] Find active review cycle
+- [ ] Calculate days remaining until end date
+- [ ] If days remaining = 30, 15, 7, or 3:
+  - Find all employees
+  - Send reminder: "Review cycle ends in X days. Complete your goals."
+- [ ] Log execution
+
+**Task 3: Pending Completion Reminders (Every Monday at 9 AM)**
+```java
+@Scheduled(cron = "0 0 9 * * MON") // Every Monday at 9 AM
+public void sendPendingCompletionReminders()
+```
+- [ ] Find managers with goals in PENDING_COMPLETION_APPROVAL status (older than 3 days)
+- [ ] Count pending completions per manager
+- [ ] Send notification: "You have X goals pending completion approval"
+- [ ] Log execution
+
+#### 11.4.3: Data Cleanup Scheduler (1 hour)
+- [ ] Create `CleanupScheduler` class
+- [ ] Inject `NotificationRepository`, `AuditLogRepository`
+
+**Task 1: Old Notification Cleanup (Monthly - 1st day at 2 AM)**
+```java
+@Scheduled(cron = "0 0 2 1 * *") // 1st of every month at 2 AM
+public void cleanupOldNotifications()
+```
+- [ ] Delete READ notifications older than 90 days
+- [ ] Log count of deleted notifications
+- [ ] Send summary to admin
+
+**Task 2: Old Audit Log Archival (Quarterly - 1st day at 3 AM)**
+```java
+@Scheduled(cron = "0 0 3 1 1,4,7,10 *") // Jan 1, Apr 1, Jul 1, Oct 1 at 3 AM
+public void archiveOldAuditLogs()
+```
+- [ ] Find audit logs older than 1 year
+- [ ] Archive to CSV file (optional - just log count for MVP)
+- [ ] Delete archived logs (optional - keep for MVP)
+- [ ] Log execution
+
+**Task 3: Inactive User Cleanup (Yearly - Jan 1 at 4 AM)**
+```java
+@Scheduled(cron = "0 0 4 1 1 *") // Every Jan 1 at 4 AM
+public void cleanupInactiveUsers()
+```
+- [ ] Find users with status INACTIVE for >1 year
+- [ ] Log count
+- [ ] Send report to admin (do not auto-delete for MVP)
+
+#### 11.4.4: Health Check Scheduler (0.5 hours - Optional)
+- [ ] Create `HealthCheckScheduler` class
+
+**Task: Database Connection Check (Every 5 minutes)**
+```java
+@Scheduled(fixedRate = 300000) // Every 5 minutes
+public void checkDatabaseConnection()
+```
+- [ ] Execute simple query: `SELECT 1`
+- [ ] If fails, log error and send alert to admin
+- [ ] Track consecutive failures
+
+### Acceptance Criteria
+✅ All schedulers run at specified times  
+✅ Notification reminders sent correctly  
+✅ Cleanup tasks execute without errors  
+✅ Scheduler execution logged  
+✅ No performance impact on application  
+✅ Schedulers can be disabled via configuration  
+✅ Exception handling prevents scheduler crashes  
+
+### Scheduler Configuration
+| Scheduler | Frequency | Time | Purpose |
+|-----------|-----------|------|---------|
+| Pending Approvals | Daily | 9 AM | Remind managers |
+| Review Cycle Ending | Daily | 10 AM | Remind employees |
+| Pending Completions | Weekly (Mon) | 9 AM | Remind managers |
+| Old Notifications | Monthly | 2 AM (1st) | Cleanup |
+| Old Audit Logs | Quarterly | 3 AM (1st) | Archive/cleanup |
+| Inactive Users | Yearly | 4 AM (Jan 1) | Report |
+| DB Health Check | Every 5 min | - | Monitor |
 
 ---
 
-## User Story 11.2: Goal Progress Check Automation
-**As a manager**  
-**I want automatic notifications for stale goals**  
-**So that employees stay engaged with their objectives**
+## 🏗️ USER STORY 11.5: MULTI-PROFILE MAVEN SETUP
 
-### Priority: HIGH
-### Owner: Kashish
+**As a developer**  
+**I want separate build profiles for dev/test/prod**  
+**So that environment-specific configurations are managed properly**
 
-### Tasks:
-1. **Create Stale Goal Detection Job**
-   - Create `GoalProgressScheduler` class
-   - Add method `checkStaleGoals()` with `@Scheduled(cron = "0 0 10 * * MON")`  // Weekly on Monday 10 AM
-   - Find IN_PROGRESS goals with no progress updates in last 14 days
-   - Calculate "days since last update" metric
+### Tasks - Ankit (Lead: 2 hours)
 
-2. **Generate Stale Goal Notifications**
-   - Create notification for employee: "Your goal '[Title]' hasn't been updated in X days"
-   - Create notification for manager: "Employee [Name] has Y goals without recent updates"
-   - Set priority to MEDIUM for 14-21 days, HIGH for 21+ days
-   - Set actionRequired = true
+#### 11.5.1: Parent POM Structure (0.5 hours)
+- [ ] Keep existing `pom.xml` (no parent POM needed for MVP)
+- [ ] Add profiles section to existing `pom.xml`:
+  ```xml
+  <profiles>
+      <profile>
+          <id>dev</id>
+          <activation>
+              <activeByDefault>true</activeByDefault>
+          </activation>
+          <properties>
+              <spring.profiles.active>dev</spring.profiles.active>
+          </properties>
+      </profile>
+      
+      <profile>
+          <id>test</id>
+          <properties>
+              <spring.profiles.active>test</spring.profiles.active>
+          </properties>
+      </profile>
+      
+      <profile>
+          <id>prod</id>
+          <properties>
+              <spring.profiles.active>prod</spring.profiles.active>
+          </properties>
+      </profile>
+  </profiles>
+  ```
 
-3. **Add Configuration**
-   - `scheduler.goal.stale.days=14`
-   - `scheduler.goal.stale.check.enabled=true`
+#### 11.5.2: Environment-Specific Properties (1 hour)
+- [ ] Create `application-dev.properties`:
+  ```properties
+  # Database
+  spring.datasource.url=jdbc:mysql://localhost:3306/performance_track_dev
+  spring.jpa.show-sql=true
+  spring.jpa.hibernate.ddl-auto=update
+  
+  # Logging
+  logging.level.com.project.performanceTrack=DEBUG
+  logging.level.org.springframework.web=DEBUG
+  
+  # JWT
+  jwt.expiration=86400000  # 24 hours
+  
+  # Scheduler
+  scheduler.enabled=true
+  ```
 
-### Acceptance Criteria:
-- ✅ Runs every Monday at 10 AM
-- ✅ Detects goals without updates for 14+ days
-- ✅ Notifications sent to employees and managers
-- ✅ Priority escalates based on staleness
-- ✅ Can be disabled via configuration
+- [ ] Create `application-test.properties`:
+  ```properties
+  # Database (H2 in-memory)
+  spring.datasource.url=jdbc:h2:mem:testdb
+  spring.datasource.driver-class-name=org.h2.Driver
+  spring.jpa.hibernate.ddl-auto=create-drop
+  
+  # Logging
+  logging.level.com.project.performanceTrack=INFO
+  
+  # JWT
+  jwt.expiration=3600000  # 1 hour
+  
+  # Scheduler
+  scheduler.enabled=false
+  ```
+
+- [ ] Create `application-prod.properties`:
+  ```properties
+  # Database
+  spring.datasource.url=${DB_URL}
+  spring.datasource.username=${DB_USERNAME}
+  spring.datasource.password=${DB_PASSWORD}
+  spring.jpa.show-sql=false
+  spring.jpa.hibernate.ddl-auto=validate
+  
+  # Logging
+  logging.level.com.project.performanceTrack=WARN
+  logging.level.root=ERROR
+  logging.file.name=/var/log/performancetrack/app.log
+  
+  # JWT
+  jwt.expiration=28800000  # 8 hours
+  jwt.secret=${JWT_SECRET}
+  
+  # Scheduler
+  scheduler.enabled=true
+  
+  # Security
+  server.ssl.enabled=true  # For HTTPS (optional)
+  ```
+
+#### 11.5.3: Build & Run Configuration (0.5 hours)
+- [ ] Document Maven commands:
+  ```bash
+  # Build for dev (default)
+  mvn clean package
+  
+  # Build for test
+  mvn clean package -Ptest
+  
+  # Build for prod
+  mvn clean package -Pprod
+  
+  # Run with specific profile
+  mvn spring-boot:run -Pdev
+  java -jar target/performanceTrack-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod
+  ```
+
+- [ ] Add conditional scheduler enabling:
+  ```java
+  @Configuration
+  @EnableScheduling
+  @ConditionalOnProperty(name = "scheduler.enabled", havingValue = "true")
+  public class SchedulerConfig { ... }
+  ```
+
+- [ ] Update `.gitignore`:
+  ```
+  application-local.properties
+  *.log
+  /logs/
+  ```
+
+### Acceptance Criteria
+✅ Three profiles (dev, test, prod) configured  
+✅ Each profile has separate properties file  
+✅ Dev profile active by default  
+✅ Test profile uses H2 in-memory database  
+✅ Prod profile reads from environment variables  
+✅ Schedulers disabled in test profile  
+✅ Build commands documented  
+✅ No sensitive data in version control  
+
+### Profile Configuration Summary
+| Property | Dev | Test | Prod |
+|----------|-----|------|------|
+| Database | MySQL (local) | H2 (memory) | MySQL (cloud) |
+| DDL Auto | update | create-drop | validate |
+| Show SQL | true | false | false |
+| Log Level | DEBUG | INFO | WARN |
+| JWT Expiry | 24h | 1h | 8h |
+| Schedulers | Enabled | Disabled | Enabled |
 
 ---
 
-## User Story 11.3: Completion Evidence Follow-Up
-**As a manager**  
-**I want reminders for pending evidence verification**  
-**So that goal completions don't get delayed**
+## 🚦 USER STORY 11.6: RATE LIMITING
 
-### Priority: MEDIUM
-### Owner: Pratik
-
-### Tasks:
-1. **Create Evidence Verification Reminder Job**
-   - Create `CompletionApprovalScheduler` class
-   - Add method `checkPendingCompletions()` with `@Scheduled(cron = "0 0 14 * * TUE,THU")`  // Tue & Thu 2 PM
-   - Find goals in PENDING_COMPLETION_APPROVAL for 3+ days
-   - Find goals with ADDITIONAL_EVIDENCE_REQUIRED for 7+ days
-
-2. **Send Targeted Reminders**
-   - For managers: List of goals pending their review
-   - For employees: Reminder about additional evidence needed
-   - Include link to goal details in notification
-
-3. **Configure Reminder Timing**
-   - `scheduler.completion.pending.days=3`
-   - `scheduler.completion.additional-evidence.days=7`
-
-### Acceptance Criteria:
-- ✅ Runs Tuesday and Thursday at 2 PM
-- ✅ Manager reminded of pending verifications after 3 days
-- ✅ Employee reminded of evidence requests after 7 days
-- ✅ Notification includes goal details and links
-
----
-
-## User Story 11.4: Notification Cleanup Job
 **As a system administrator**  
-**I want automatic cleanup of old notifications**  
-**So that database doesn't grow indefinitely**
+**I want rate limiting on APIs**  
+**So that abuse and DDoS attacks are prevented**
 
-### Priority: MEDIUM
-### Owner: Ankit
+### Tasks - Akashat (Lead: 3 hours)
 
-### Tasks:
-1. **Create Notification Cleanup Job**
-   - Create `NotificationCleanupScheduler` class
-   - Add method `cleanupOldNotifications()` with `@Scheduled(cron = "0 0 2 * * SUN")`  // Sunday 2 AM
-   - Delete READ notifications older than 90 days
-   - Keep UNREAD notifications indefinitely
-   - Log cleanup statistics (count deleted, oldest date retained)
+#### 11.6.1: Rate Limiting Infrastructure (1 hour)
+- [ ] Add Bucket4j dependency to `pom.xml`:
+  ```xml
+  <dependency>
+      <groupId>com.github.vladimir-bukhtoyarov</groupId>
+      <artifactId>bucket4j-core</artifactId>
+      <version>8.1.0</version>
+  </dependency>
+  ```
 
-2. **Add Cleanup Configuration**
-   - `scheduler.notification.cleanup.enabled=true`
-   - `scheduler.notification.cleanup.retention.days=90`
-   - `scheduler.notification.cleanup.batch.size=1000`
+- [ ] Create `com.project.performanceTrack.config.RateLimitConfig`
+- [ ] Define rate limit rules:
+  ```java
+  public enum RateLimitType {
+      LOGIN(5, 1),           // 5 requests per minute
+      PASSWORD_CHANGE(3, 5), // 3 requests per 5 minutes
+      GOAL_CREATE(20, 1),    // 20 requests per minute
+      API_GENERAL(100, 1);   // 100 requests per minute (default)
+      
+      private final long capacity;
+      private final long refillMinutes;
+  }
+  ```
 
-3. **Implement Batch Deletion**
-   - Delete in batches of 1000 to avoid long-running transactions
-   - Use `@Transactional` with proper isolation level
+- [ ] Create bucket storage (in-memory ConcurrentHashMap for MVP):
+  ```java
+  private final Map<String, Bucket> buckets = new ConcurrentHashMap<>();
+  ```
 
-### Acceptance Criteria:
-- ✅ Runs every Sunday at 2 AM
-- ✅ Deletes READ notifications older than 90 days
-- ✅ Never deletes UNREAD notifications
-- ✅ Batch processing prevents performance issues
-- ✅ Cleanup statistics logged
+#### 11.6.2: Rate Limit Interceptor (1 hour)
+- [ ] Create `RateLimitInterceptor` implementing `HandlerInterceptor`
+- [ ] Extract client identifier:
+  - Use user ID if authenticated
+  - Use IP address if not authenticated
+- [ ] Check bucket for rate limit:
+  ```java
+  public boolean preHandle(HttpServletRequest request, ...) {
+      String key = getUserIdOrIp(request);
+      RateLimitType limitType = determineLimitType(request);
+      Bucket bucket = resolveBucket(key, limitType);
+      
+      if (bucket.tryConsume(1)) {
+          return true; // Allow request
+      } else {
+          response.setStatus(429); // Too Many Requests
+          response.getWriter().write("Rate limit exceeded. Try again later.");
+          return false;
+      }
+  }
+  ```
 
----
+- [ ] Register interceptor in `WebMvcConfigurer`:
+  ```java
+  @Configuration
+  public class WebConfig implements WebMvcConfigurer {
+      @Autowired
+      private RateLimitInterceptor rateLimitInterceptor;
+      
+      @Override
+      public void addInterceptors(InterceptorRegistry registry) {
+          registry.addInterceptor(rateLimitInterceptor)
+                  .addPathPatterns("/api/v1/**")
+                  .excludePathPatterns("/api/v1/auth/login"); // Special handling
+      }
+  }
+  ```
 
-## User Story 11.5: Performance Metrics Report Generation
-**As an admin**  
-**I want weekly automated performance reports**  
-**So that trends are tracked consistently**
+#### 11.6.3: Apply Rate Limits to Critical Endpoints (1 hour)
+- [ ] **Authentication Endpoints** (Strict):
+  - `POST /api/v1/auth/login` → 5 req/min per IP
+  - `PUT /api/v1/auth/change-password` → 3 req/5min per user
 
-### Priority: LOW
-### Owner: Akashat
+- [ ] **Write Endpoints** (Moderate):
+  - `POST /api/v1/goals` → 20 req/min per user
+  - `POST /api/v1/performance-reviews` → 10 req/min per user
+  - `POST /api/v1/users` → 10 req/min per admin
 
-### Tasks:
-1. **Create Weekly Report Generator**
-   - Create `ReportGenerationScheduler` class
-   - Add method `generateWeeklyReport()` with `@Scheduled(cron = "0 0 22 * * SUN")`  // Sunday 10 PM
-   - Calculate weekly metrics: goals completed, reviews submitted, average ratings
-   - Store report in `reports` table
-   - Notify admin users that report is ready
+- [ ] **Read Endpoints** (Lenient):
+  - `GET /api/v1/**` → 100 req/min per user (default)
 
-2. **Configure Report Settings**
-   - `scheduler.report.weekly.enabled=true`
-   - `scheduler.report.format=PDF`
-   - `scheduler.report.notify.admins=true`
+- [ ] **Report Generation** (Strict):
+  - `POST /api/v1/reports/generate` → 5 req/hour per user
 
-### Acceptance Criteria:
-- ✅ Generates report every Sunday at 10 PM
-- ✅ Report includes all weekly metrics
-- ✅ Stored in database with metadata
-- ✅ Admin users notified
+- [ ] Add custom annotation for rate limiting (optional):
+  ```java
+  @RateLimit(capacity = 10, refillMinutes = 1)
+  @PostMapping("/goals")
+  public ApiResponse<Goal> createGoal(...) { ... }
+  ```
 
----
+- [ ] Log rate limit violations:
+  ```java
+  log.warn("Rate limit exceeded for user/IP: {} on endpoint: {}", key, request.getRequestURI());
+  ```
 
-# 📋 EPIC 12: COMPREHENSIVE LOGGING
+- [ ] Add audit log entry for repeated violations (optional)
 
-## User Story 12.1: Centralized Logging Infrastructure
-**As a developer**  
-**I want structured logging across all layers**  
-**So that debugging and monitoring are efficient**
+### Acceptance Criteria
+✅ Rate limiting active on all API endpoints  
+✅ Login endpoint has strictest limit (5 req/min)  
+✅ Write endpoints have moderate limits  
+✅ Read endpoints have lenient limits  
+✅ 429 status code returned when limit exceeded  
+✅ Rate limits per user (authenticated) or IP (unauthenticated)  
+✅ No performance degradation under normal load  
+✅ Rate limit violations logged  
 
-### Priority: HIGH
-### Owner: Kashish
-
-### Tasks:
-1. **Configure Logback**
-   - Create `src/main/resources/logback-spring.xml`
-   - Define log patterns with timestamp, thread, level, logger, message, MDC
-   - Configure file appenders:
-     - `logs/application.log` (all logs, rolling daily, keep 30 days)
-     - `logs/error.log` (ERROR level only, rolling daily, keep 60 days)
-     - `logs/audit.log` (audit events only, rolling daily, keep 365 days)
-   - Configure console appender for DEV profile only
-
-2. **Setup Log Levels by Profile**
-   - **DEV**: `logging.level.root=INFO`, `logging.level.com.project.performanceTrack=DEBUG`
-   - **TEST**: `logging.level.root=WARN`, `logging.level.com.project.performanceTrack=INFO`
-   - **PROD**: `logging.level.root=ERROR`, `logging.level.com.project.performanceTrack=WARN`
-
-3. **Configure Rolling Policy**
-   - Max file size: 10MB
-   - Total size cap: 1GB
-   - Max history: 30 days (application), 60 days (error), 365 days (audit)
-
-### Acceptance Criteria:
-- ✅ Logs written to separate files by type
-- ✅ Log rotation working correctly
-- ✅ Console logs only in DEV
-- ✅ Log levels appropriate per environment
-
----
-
-## User Story 12.2: Method-Level Logging with AOP
-**As a developer**  
-**I want automatic logging of service method entry/exit**  
-**So that execution flow is traceable**
-
-### Priority: MEDIUM
-### Owner: Pratik
-
-### Tasks:
-1. **Create Logging Aspect**
-   - Add Spring AOP dependency
-   - Create `@Aspect` class `LoggingAspect`
-   - Create `@Around` advice for all service methods
-   - Log method name, parameters (mask sensitive data), execution time
-   - Log return value (mask sensitive data)
-   - Log exceptions with full stack trace
-
-2. **Implement Sensitive Data Masking**
-   - Create `DataMaskingUtil` class
-   - Mask passwords, tokens, SSN, credit cards
-   - Use regex patterns for detection
-   - Replace with `***MASKED***`
-
-3. **Configure AOP Logging**
-   - `logging.aop.enabled=true`
-   - `logging.aop.log-parameters=true`
-   - `logging.aop.log-execution-time=true`
-   - `logging.aop.mask-sensitive-data=true`
-
-### Acceptance Criteria:
-- ✅ All service methods logged automatically
-- ✅ Execution time captured
-- ✅ Sensitive data masked in logs
-- ✅ Can disable via configuration
+### Rate Limit Configuration
+| Endpoint | Limit | Window | Identifier |
+|----------|-------|--------|------------|
+| `POST /api/v1/auth/login` | 5 | 1 min | IP address |
+| `PUT /api/v1/auth/change-password` | 3 | 5 min | User ID |
+| `POST /api/v1/goals` | 20 | 1 min | User ID |
+| `POST /api/v1/performance-reviews` | 10 | 1 min | User ID |
+| `POST /api/v1/reports/generate` | 5 | 1 hour | User ID |
+| `GET /api/v1/**` | 100 | 1 min | User ID |
 
 ---
 
-## User Story 12.3: HTTP Request/Response Logging
-**As a developer**  
-**I want all API requests logged**  
-**So that API usage is auditable**
+## 📊 IMPLEMENTATION PRIORITY & TIMELINE
 
-### Priority: MEDIUM
-### Owner: Rudra
+### Phase 1: Foundation (Week 1)
+**Priority: HIGH | Time: 6 hours**
+- [ ] **Day 1-2**: User Story 11.1 - Logging (Ankit) - 4 hours
+- [ ] **Day 2-3**: User Story 11.2 - Utility Classes (Ankit) - 3 hours
+- [ ] **Day 3**: User Story 11.5 - Maven Profiles (Ankit) - 2 hours
 
-### Tasks:
-1. **Create Request Logging Filter**
-   - Create `RequestLoggingFilter` implementing `OncePerRequestFilter`
-   - Log request: method, URI, headers (except Authorization), body
-   - Log response: status code, headers, body (if enabled)
-   - Capture request processing time
-   - Use MDC to add request ID to all logs
+**Milestone**: Application has logging, utilities, and multi-profile support
 
-2. **Add Request ID Generation**
-   - Generate UUID for each request
-   - Add to MDC: `MDC.put("requestId", uuid)`
-   - Include in response header: `X-Request-ID`
-   - Clear MDC after request completion
+### Phase 2: Optimization (Week 2)
+**Priority: HIGH | Time: 5 hours**
+- [ ] **Day 1-2**: User Story 11.3 - Pagination (Kashish) - 2 hours
+- [ ] **Day 2-3**: User Story 11.4 - Schedulers (Pratik) - 3 hours
 
-3. **Configure Request Logging**
-   - `logging.http.requests.enabled=true`
-   - `logging.http.requests.log-headers=true`
-   - `logging.http.requests.log-body=false`  // Disable in PROD
-   - `logging.http.requests.max-body-size=1024`
+**Milestone**: Application optimized for large datasets and automation
 
-### Acceptance Criteria:
-- ✅ All requests logged with unique ID
-- ✅ Request ID in response header
-- ✅ Request/response bodies configurable
-- ✅ Sensitive headers excluded
+### Phase 3: Security (Week 2-3)
+**Priority: MEDIUM | Time: 3 hours**
+- [ ] **Day 4-5**: User Story 11.6 - Rate Limiting (Akashat) - 3 hours
+
+**Milestone**: Application protected against abuse
 
 ---
 
-## User Story 12.4: Database Query Logging
-**As a developer**  
-**I want slow query detection**  
-**So that performance issues are identified**
+## 📋 TESTING CHECKLIST
 
-### Priority: LOW
-### Owner: Sharen
+### Logging Tests
+- [ ] Log files created in correct locations
+- [ ] Log rotation working (create 10MB file, verify rotation)
+- [ ] Different log levels per environment
+- [ ] No sensitive data in logs (search for "password", "token")
+- [ ] Console logs readable in dev mode
 
-### Tasks:
-1. **Configure Hibernate Logging**
-   - Enable SQL logging: `spring.jpa.show-sql=false` (use logger instead)
-   - Enable query logging: `logging.level.org.hibernate.SQL=DEBUG`
-   - Enable parameter logging: `logging.level.org.hibernate.type.descriptor.sql.BasicBinder=TRACE`
-   - Format SQL: `spring.jpa.properties.hibernate.format_sql=true`
+### Utility Tests
+- [ ] All notification utility methods create correct notifications
+- [ ] All audit utility methods create correct audit logs
+- [ ] Refactored services use utilities (no direct repository calls)
+- [ ] Unit tests for utilities achieve >90% coverage
+- [ ] Integration tests pass after refactoring
 
-2. **Add Query Performance Logging**
-   - Configure datasource proxy for query timing
-   - Log queries taking >1 second with WARN level
-   - Include query, parameters, execution time
+### Pagination Tests
+- [ ] Page 0, size 20 returns first 20 records
+- [ ] Page 1, size 20 returns next 20 records
+- [ ] Sorting by different fields works (ASC/DESC)
+- [ ] Total elements count accurate
+- [ ] Empty page returns empty list (not error)
+- [ ] Invalid page number handled gracefully
 
-3. **Profile-Specific Configuration**
-   - DEV: All SQL logged
-   - TEST: Slow queries only
-   - PROD: Slow queries only (>2 seconds)
+### Scheduler Tests
+- [ ] Schedulers execute at correct times (use `@Scheduled(fixedDelay = 5000)` for testing)
+- [ ] Notification reminders sent to correct users
+- [ ] Cleanup tasks delete correct records
+- [ ] Schedulers handle exceptions without crashing
+- [ ] Schedulers disabled in test profile
+- [ ] Scheduler execution logged
 
-### Acceptance Criteria:
-- ✅ SQL queries logged in DEV
-- ✅ Slow queries detected and logged
-- ✅ Query parameters visible in logs
-- ✅ Different thresholds per environment
+### Profile Tests
+- [ ] Build succeeds for all profiles (dev, test, prod)
+- [ ] Each profile loads correct properties file
+- [ ] Test profile uses H2 database
+- [ ] Prod profile reads from environment variables
+- [ ] Application runs with each profile
 
----
-
-## User Story 12.5: Business Event Logging
-**As a business analyst**  
-**I want key business events logged separately**  
-**So that business metrics can be analyzed**
-
-### Priority: MEDIUM
-### Owner: Akashat
-
-### Tasks:
-1. **Create Business Event Logger**
-   - Create separate `business-events.log` file
-   - Create `BusinessEventLogger` utility class
-   - Define event types: GOAL_CREATED, GOAL_COMPLETED, REVIEW_SUBMITTED, etc.
-   - Log with structured format: timestamp, eventType, userId, entityId, metadata (JSON)
-
-2. **Integrate into Services**
-   - Add business event logging in:
-     - GoalService: GOAL_CREATED, GOAL_APPROVED, GOAL_COMPLETED
-     - PerformanceReviewService: REVIEW_SUBMITTED, REVIEW_COMPLETED
-     - UserService: USER_CREATED, USER_UPDATED
-
-3. **Configure Business Event Logging**
-   - `logging.business-events.enabled=true`
-   - `logging.business-events.format=JSON`
-   - Separate appender in logback.xml
-
-### Acceptance Criteria:
-- ✅ Business events in separate log file
-- ✅ JSON format for easy parsing
-- ✅ All key events logged
-- ✅ Metadata includes relevant IDs
+### Rate Limiting Tests
+- [ ] Login endpoint blocks after 5 requests in 1 minute
+- [ ] Rate limit resets after window expires
+- [ ] Different users have separate rate limits
+- [ ] 429 status code returned when limited
+- [ ] Rate limit violations logged
+- [ ] Normal usage not affected
 
 ---
 
-# 📋 EPIC 13: MULTI-MODULE PROJECT STRUCTURE
+## 📖 DOCUMENTATION REQUIREMENTS
 
-## User Story 13.1: Parent POM Setup
-**As a build engineer**  
-**I want a parent POM with common configuration**  
-**So that module configuration is consistent**
+### Logging Documentation
+- [ ] Update README with logging section:
+  - Log file locations
+  - Log levels by environment
+  - How to change log levels
+  - How to search logs
+- [ ] Create `LOGGING.md` with:
+  - Logging best practices
+  - What to log at each level
+  - Sensitive data guidelines
 
-### Priority: HIGH
-### Owner: Ankit
+### Utility Documentation
+- [ ] Add Javadoc to all utility methods
+- [ ] Create `UTILITIES.md` with:
+  - How to use NotificationUtil
+  - How to use AuditUtil
+  - Examples of common patterns
 
-### Tasks:
-1. **Create Parent POM Structure**
-   ```
-   performancetrack-parent/
-   ├── pom.xml (parent)
-   ├── performancetrack-common/
-   │   └── pom.xml
-   ├── performancetrack-api/
-   │   └── pom.xml
-   └── performancetrack-scheduler/
-       └── pom.xml
-   ```
+### Pagination Documentation
+- [ ] Update API documentation (Swagger) with pagination parameters
+- [ ] Update Postman collection with pagination examples
+- [ ] Create `PAGINATION.md` with:
+  - How to use pagination
+  - Query parameter reference
+  - Best practices
 
-2. **Configure Parent POM**
-   - Set `<packaging>pom</packaging>`
-   - Define common properties: Java version, Spring Boot version, dependency versions
-   - Define `<dependencyManagement>` section with all dependencies
-   - Define `<pluginManagement>` for Maven plugins
-   - Define profiles: dev, test, prod
+### Scheduler Documentation
+- [ ] Create `SCHEDULERS.md` with:
+  - List of all schedulers
+  - Execution frequency
+  - How to enable/disable
+  - How to monitor
 
-3. **Define Dependency Versions**
-   ```xml
-   <properties>
-       <java.version>21</java.version>
-       <spring-boot.version>3.2.1</spring-boot.version>
-       <lombok.version>1.18.30</lombok.version>
-       <jwt.version>0.11.5</jwt.version>
-       <modelmapper.version>3.2.0</modelmapper.version>
-   </properties>
-   ```
+### Profile Documentation
+- [ ] Update README with profile section:
+  - How to build for each profile
+  - How to run with each profile
+  - Environment variables required for prod
+- [ ] Create `DEPLOYMENT.md` with production deployment guide
 
-### Acceptance Criteria:
-- ✅ Parent POM compiles successfully
-- ✅ All dependency versions centralized
-- ✅ Child modules inherit configuration
-- ✅ Profiles defined for all environments
-
----
-
-## User Story 13.2: Profile-Based Configuration
-**As a DevOps engineer**  
-**I want environment-specific profiles**  
-**So that application behaves correctly per environment**
-
-### Priority: HIGH
-### Owner: Kashish
-
-### Tasks:
-1. **Create Profile-Specific Property Files**
-   ```
-   src/main/resources/
-   ├── application.properties (common)
-   ├── application-dev.properties
-   ├── application-test.properties
-   └── application-prod.properties
-   ```
-
-2. **Configure DEV Profile**
-   - Database: `spring.datasource.url=jdbc:mysql://localhost:3306/perftrack_dev`
-   - Logging: DEBUG level
-   - Security: Relaxed CORS, token expiry 24 hours
-   - Scheduler: All enabled with short intervals for testing
-   - Show SQL: true
-   - DDL: update
-
-3. **Configure TEST Profile**
-   - Database: In-memory H2 or separate test DB
-   - Logging: INFO level
-   - Security: Standard CORS, token expiry 1 hour
-   - Scheduler: Disabled
-   - Show SQL: false
-   - DDL: create-drop
-
-4. **Configure PROD Profile**
-   - Database: Production MySQL with connection pooling
-   - Logging: WARN/ERROR level
-   - Security: Strict CORS, token expiry 30 minutes
-   - Scheduler: All enabled with production intervals
-   - Show SQL: false
-   - DDL: validate
-   - Enable SSL/TLS
-
-5. **Add Profile Activation**
-   - Default: dev
-   - Maven: `mvn spring-boot:run -Dspring-boot.run.profiles=prod`
-   - JAR: `java -jar app.jar --spring.profiles.active=prod`
-
-### Acceptance Criteria:
-- ✅ Each profile has separate configuration
-- ✅ DEV uses local database
-- ✅ TEST uses in-memory database
-- ✅ PROD uses production database
-- ✅ Profile activated correctly via command line
+### Rate Limiting Documentation
+- [ ] Update API documentation with rate limits
+- [ ] Create `RATE_LIMITING.md` with:
+  - Rate limits per endpoint
+  - How to handle 429 errors
+  - How to request limit increase
 
 ---
 
-## User Story 13.3: Common Module Extraction
-**As a developer**  
-**I want shared code in common module**  
-**So that code reuse is maximized**
+## 🎯 SUCCESS METRICS
 
-### Priority: MEDIUM
-### Owner: Pratik
+### Code Quality
+- [ ] Logging added to all layers (Controller, Service, Security)
+- [ ] Code duplication reduced by >60% with utilities
+- [ ] No hardcoded notification/audit creation in services
+- [ ] All utility classes have >90% test coverage
 
-### Tasks:
-1. **Create performancetrack-common Module**
-   - Move to common:
-     - All entities
-     - All enums
-     - All DTOs
-     - Utility classes
-     - Exception classes
-     - Security utilities (JwtUtil)
+### Performance
+- [ ] Pagination reduces response size by >80% for large lists
+- [ ] Pagination response time <200ms for 1000+ records
+- [ ] Schedulers execute without blocking main application
+- [ ] Rate limiting adds <10ms latency
 
-2. **Configure Common Module POM**
-   - Add only necessary dependencies (no web, no security)
-   - Dependencies: Spring Data JPA, Validation, Lombok
+### Reliability
+- [ ] All schedulers run on time (±1 second)
+- [ ] Log rotation prevents disk space issues
+- [ ] Rate limiting blocks abuse without false positives
+- [ ] No scheduler crashes from exceptions
 
-3. **Update API Module**
-   - Add dependency on common module
-   - Remove moved classes
-   - Update imports
-
-### Acceptance Criteria:
-- ✅ Common module compiles independently
-- ✅ API module uses common module
-- ✅ No code duplication
-- ✅ All tests pass after refactoring
+### Maintainability
+- [ ] Environment switching requires only profile change
+- [ ] New notifications added in <5 minutes (use utility)
+- [ ] New audit logs added in <5 minutes (use utility)
+- [ ] New schedulers added in <30 minutes
 
 ---
 
-# 📋 EPIC 14: UTILITY FUNCTIONS FOR NOTIFICATION & AUDIT
+## 🚀 ROLLOUT PLAN
 
-## User Story 14.1: Notification Utility Class
-**As a developer**  
-**I want reusable notification creation methods**  
-**So that notification logic is consistent**
+### Week 1: Foundation
+1. **Logging** (Monday-Tuesday)
+   - Add Logback configuration
+   - Add logging to all layers
+   - Test log files and rotation
 
-### Priority: HIGH
-### Owner: Ankit
+2. **Utilities** (Wednesday-Thursday)
+   - Create NotificationUtil and AuditUtil
+   - Refactor existing services
+   - Run regression tests
 
-### Tasks:
-1. **Create NotificationUtil Class**
-   ```java
-   @Component
-   @RequiredArgsConstructor
-   public class NotificationUtil {
-       private final NotificationRepository notificationRepository;
-       private final UserRepository userRepository;
-       
-       // Method signatures to implement...
-   }
-   ```
+3. **Profiles** (Friday)
+   - Create profile properties files
+   - Test build and run for each profile
 
-2. **Implement Notification Creation Methods**
-   - `createGoalNotification(Integer userId, NotificationType type, Goal goal, String customMessage)`
-   - `createReviewNotification(Integer userId, NotificationType type, PerformanceReview review, String customMessage)`
-   - `createSystemNotification(Integer userId, NotificationType type, String message, String priority)`
-   - `createNotificationForTeam(Integer managerId, NotificationType type, String message)`
-   - `createNotificationForAllManagers(NotificationType type, String message)`
+### Week 2: Optimization & Security
+1. **Pagination** (Monday)
+   - Update repositories and services
+   - Update controllers
+   - Test with large datasets
 
-3. **Add Notification Templating**
-   - Create message templates in `notification-templates.properties`
-   - Use placeholders: `{userName}`, `{goalTitle}`, `{managerName}`, etc.
-   - Support for dynamic message composition
+2. **Schedulers** (Tuesday-Wednesday)
+   - Create scheduler classes
+   - Add notification reminders
+   - Add cleanup tasks
+   - Test scheduler execution
 
-4. **Implement Batch Notification Creation**
-   - `createBulkNotifications(List<Integer> userIds, NotificationType type, String message)`
-   - Use batch insert for performance
+3. **Rate Limiting** (Thursday-Friday)
+   - Add Bucket4j dependency
+   - Create rate limit interceptor
+   - Apply limits to endpoints
+   - Test rate limiting
 
-### Acceptance Criteria:
-- ✅ All services use NotificationUtil
-- ✅ No duplicate notification creation code
-- ✅ Message templates externalized
-- ✅ Batch creation optimized
+### Week 3: Testing & Documentation
+1. **Comprehensive Testing** (Monday-Wednesday)
+   - Run all unit tests
+   - Run all integration tests
+   - Performance testing
+   - Security testing
 
----
+2. **Documentation** (Thursday-Friday)
+   - Update README
+   - Create feature-specific docs
+   - Update API documentation
+   - Update Postman collection
 
-## User Story 14.2: Audit Logging Utility Class
-**As a developer**  
-**I want standardized audit logging**  
-**So that all actions are consistently tracked**
-
-### Priority: HIGH
-### Owner: Ankit
-
-### Tasks:
-1. **Create AuditUtil Class**
-   ```java
-   @Component
-   @RequiredArgsConstructor
-   public class AuditUtil {
-       private final AuditLogRepository auditLogRepository;
-       
-       // Method signatures to implement...
-   }
-   ```
-
-2. **Implement Audit Methods**
-   - `logAction(Integer userId, String action, String details)`
-   - `logEntityAction(Integer userId, String action, String entityType, Integer entityId, String details)`
-   - `logSuccessAction(Integer userId, String action, String entityType, Integer entityId, String details)`
-   - `logFailedAction(Integer userId, String action, String details, Exception exception)`
-   - `logSecurityEvent(Integer userId, String action, String ipAddress, String details)`
-
-3. **Add IP Address Extraction**
-   - Create method to extract IP from HttpServletRequest
-   - Handle proxy headers (X-Forwarded-For)
-   - Store in audit log
-
-4. **Implement Async Audit Logging**
-   - Use `@Async` for audit log creation
-   - Configure async executor in configuration
-   - Prevent audit logging from blocking main operations
-
-### Acceptance Criteria:
-- ✅ All services use AuditUtil
-- ✅ IP address captured correctly
-- ✅ Async logging doesn't block requests
-- ✅ Failed actions logged with exceptions
+3. **Code Review & Deployment** (Friday)
+   - Team code review
+   - Final testing
+   - Deploy to production (if ready)
 
 ---
 
-## User Story 14.3: Audit Logging Aspect (AOP)
-**As a developer**  
-**I want automatic audit logging via annotations**  
-**So that audit logging is declarative**
+## 📞 TEAM RESPONSIBILITIES
 
-### Priority: MEDIUM
-### Owner: Kashish
-
-### Tasks:
-1. **Create Custom Audit Annotation**
-   ```java
-   @Target(ElementType.METHOD)
-   @Retention(RetentionPolicy.RUNTIME)
-   public @interface Audited {
-       String action();
-       String entityType() default "";
-       boolean logParameters() default false;
-   }
-   ```
-
-2. **Create Audit Aspect**
-   - Create `@Aspect` class `AuditAspect`
-   - Intercept methods annotated with `@Audited`
-   - Extract user from SecurityContext
-   - Extract entity ID from method parameters or return value
-   - Call AuditUtil to log
-
-3. **Apply to Service Methods**
-   - Annotate key service methods:
-     ```java
-     @Audited(action = "GOAL_CREATED", entityType = "GOAL")
-     public Goal createGoal(...) { ... }
-     ```
-
-### Acceptance Criteria:
-- ✅ Annotated methods auto-logged
-- ✅ User ID extracted from security context
-- ✅ Entity ID extracted correctly
-- ✅ Can disable annotation-based logging
+| Feature | Owner | Support | Hours | Complexity |
+|---------|-------|---------|-------|------------|
+| Logging | Ankit | All | 4 | LOW |
+| Utilities | Ankit | All | 3 | LOW |
+| Pagination | Kashish | Ankit | 2 | MEDIUM |
+| Schedulers | Pratik | Ankit | 3 | MEDIUM |
+| Maven Profiles | Ankit | - | 2 | LOW |
+| Rate Limiting | Akashat | Ankit | 3 | MEDIUM |
+| **TOTAL** | - | - | **17** | - |
 
 ---
 
-# 📋 EPIC 15: RATE LIMITING
+## ✅ FINAL CHECKLIST
 
-## User Story 15.1: API Rate Limiting Implementation
-**As a system administrator**  
-**I want rate limiting on sensitive endpoints**  
-**So that API abuse is prevented**
+### Before Starting
+- [ ] All team members understand the plan
+- [ ] Development environment set up
+- [ ] Dependencies verified
+- [ ] Git branches created
 
-### Priority: HIGH
-### Owner: Rudra
+### During Development
+- [ ] Daily standup to track progress
+- [ ] Code committed frequently
+- [ ] Tests written alongside code
+- [ ] Documentation updated continuously
 
-### Tasks:
-1. **Add Bucket4j Dependency**
-   ```xml
-   <dependency>
-       <groupId>com.github.vladimir-bukhtoyarov</groupId>
-       <artifactId>bucket4j-core</artifactId>
-       <version>8.1.0</version>
-   </dependency>
-   ```
+### Before Completion
+- [ ] All user stories completed
+- [ ] All tests passing
+- [ ] Code reviewed by team
+- [ ] Documentation complete
+- [ ] Postman collection updated
+- [ ] Demo prepared
 
-2. **Create Rate Limit Configuration**
-   - Create `RateLimitConfig` class
-   - Define rate limits per endpoint type:
-     - Authentication: 5 requests/minute per IP
-     - Goal creation: 10 requests/minute per user
-     - Report generation: 5 requests/hour per user
-     - Search/Filter: 60 requests/minute per user
-
-3. **Implement Rate Limit Filter**
-   - Create `RateLimitFilter` implementing `OncePerRequestFilter`
-   - Use Bucket4j to track requests
-   - Store buckets in-memory (ConcurrentHashMap) or Redis
-   - Return 429 Too Many Requests when limit exceeded
-   - Include Retry-After header
-
-4. **Configure Rate Limiting**
-   - `ratelimit.enabled=true`
-   - `ratelimit.auth.requests-per-minute=5`
-   - `ratelimit.goal.requests-per-minute=10`
-   - `ratelimit.report.requests-per-hour=5`
-
-### Acceptance Criteria:
-- ✅ Rate limits enforced per endpoint
-- ✅ 429 status returned when exceeded
-- ✅ Retry-After header present
-- ✅ Can disable via configuration
+### After Completion
+- [ ] Features demoed to stakeholders
+- [ ] Feedback collected
+- [ ] Production deployment checklist ready
+- [ ] Monitoring plan in place
 
 ---
 
-## User Story 15.2: User-Specific Rate Limiting
-**As a system administrator**  
-**I want different rate limits per user role**  
-**So that admins have higher limits**
+## 🎓 LEARNING OUTCOMES
 
-### Priority: MEDIUM
-### Owner: Sharen
+By completing this epic, the team will learn:
 
-### Tasks:
-1. **Implement Role-Based Rate Limits**
-   - Define limits per role:
-     - ADMIN: 2x standard limit
-     - MANAGER: 1.5x standard limit
-     - EMPLOYEE: 1x standard limit
-   - Extract role from JWT token
-   - Apply appropriate bucket
+1. **Professional Logging**
+   - SLF4J and Logback usage
+   - Log levels and when to use them
+   - Log file management and rotation
 
-2. **Add IP-Based Rate Limiting**
-   - Global IP rate limit: 100 requests/minute
-   - Track by IP address
-   - Bypass for whitelisted IPs
+2. **Code Reusability**
+   - Creating utility classes
+   - Reducing code duplication
+   - Dependency injection patterns
 
-3. **Configure Role-Based Limits**
-   - `ratelimit.employee.multiplier=1`
-   - `ratelimit.manager.multiplier=1.5`
-   - `ratelimit.admin.multiplier=2`
-   - `ratelimit.ip.global-limit=100`
+3. **Data Optimization**
+   - Spring Data pagination
+   - Query optimization
+   - Response size management
 
-### Acceptance Criteria:
-- ✅ Admins have higher limits
-- ✅ IP-based limiting works
-- ✅ Whitelisted IPs bypass limits
+4. **Task Automation**
+   - Spring @Scheduled annotation
+   - Cron expressions
+   - Background job management
 
----
+5. **Environment Management**
+   - Maven profiles
+   - Environment-specific configuration
+   - Externalized configuration
 
-## User Story 15.3: Rate Limit Monitoring & Alerts
-**As a system administrator**  
-**I want alerts for rate limit violations**  
-**So that abuse patterns are detected**
-
-### Priority: LOW
-### Owner: Akashat
-
-### Tasks:
-1. **Log Rate Limit Violations**
-   - Log when limit exceeded
-   - Include: user ID, IP, endpoint, timestamp
-   - Separate log file: `rate-limit-violations.log`
-
-2. **Create Violation Tracking**
-   - Count violations per user/IP in time window
-   - Alert if >10 violations in 1 hour
-   - Create notification for admin users
-
-3. **Add Metrics**
-   - Expose rate limit metrics via Actuator
-   - Track: total requests, rejected requests, violation count
-
-### Acceptance Criteria:
-- ✅ Violations logged separately
-- ✅ Admins alerted for repeated violations
-- ✅ Metrics available via Actuator
+6. **API Security**
+   - Rate limiting strategies
+   - Abuse prevention
+   - Performance under load
 
 ---
 
-# 📋 EPIC 16: PAGINATION
+This plan maintains the **MINIMUM VIABLE** approach while adding professional enterprise features. The changes are **MINIMAL** and focused on the **MOST NECESSARY** improvements for a production-ready fresher project.
 
-## User Story 16.1: Goal Listing Pagination
-**As a user**  
-**I want paginated goal results**  
-**So that large goal lists load quickly**
-
-### Priority: HIGH
-### Owner: Rudra
-
-### Tasks:
-1. **Update GoalRepository**
-   - Change return type from `List<Goal>` to `Page<Goal>`
-   - Add `Pageable` parameter to query methods
-   - Example: `Page<Goal> findByAssignedToUser_UserId(Integer userId, Pageable pageable)`
-
-2. **Update GoalService**
-   - Accept `Pageable` parameter
-   - Return `Page<Goal>`
-   - Add sorting support (by createdDate, priority, status)
-
-3. **Update GoalController**
-   - Add `@RequestParam` for pagination:
-     - `page` (default 0)
-     - `size` (default 20, max 100)
-     - `sort` (default "createdDate,desc")
-   - Return `Page` object with metadata
-   - Example response:
-     ```json
-     {
-       "content": [...],
-       "totalElements": 150,
-       "totalPages": 8,
-       "size": 20,
-       "number": 0
-     }
-     ```
-
-4. **Configure Pagination Defaults**
-   - `spring.data.web.pageable.default-page-size=20`
-   - `spring.data.web.pageable.max-page-size=100`
-
-### Acceptance Criteria:
-- ✅ Goal list paginated with 20 items/page
-- ✅ Client can specify page/size/sort
-- ✅ Total count returned in response
-- ✅ Sorting works correctly
-
----
-
-## User Story 16.2: Performance Review Pagination
-**As a user**  
-**I want paginated review results**  
-**So that review lists are manageable**
-
-### Priority: HIGH
-### Owner: Pratik
-
-### Tasks:
-1. **Update PerformanceReviewRepository**
-   - Add `Pageable` to all query methods
-   - Return `Page<PerformanceReview>`
-
-2. **Update PerformanceReviewService & Controller**
-   - Accept pagination parameters
-   - Return paginated results
-   - Support sorting by: submittedDate, status, managerRating
-
-### Acceptance Criteria:
-- ✅ Review list paginated
-- ✅ Multiple sort fields supported
-- ✅ Filtering works with pagination
-
----
-
-## User Story 16.3: Notification Pagination
-**As a user**  
-**I want paginated notifications**  
-**So that notification list is performant**
-
-### Priority: HIGH
-### Owner: Kashish
-
-### Tasks:
-1. **Update NotificationRepository**
-   - Add Pageable to findByUser methods
-   - Return `Page<Notification>`
-   - Sort by createdDate desc by default
-
-2. **Update NotificationController**
-   - Add pagination parameters
-   - Return paginated results
-   - Support filtering + pagination
-
-### Acceptance Criteria:
-- ✅ Notifications paginated (default 50/page)
-- ✅ Filtering and pagination work together
-- ✅ Newest notifications first
-
----
-
-## User Story 16.4: Audit Log Pagination
-**As an admin**  
-**I want paginated audit logs**  
-**So that large audit trails are navigable**
-
-### Priority: MEDIUM
-### Owner: Ankit
-
-### Tasks:
-1. **Update AuditLogRepository**
-   - Add Pageable to all query methods
-   - Return `Page<AuditLog>`
-   - Default sort: timestamp desc
-
-2. **Update AuditLogController**
-   - Add pagination parameters
-   - Support complex filtering + pagination
-   - Export respects pagination (export current page)
-
-### Acceptance Criteria:
-- ✅ Audit logs paginated
-- ✅ Filtering works with pagination
-- ✅ Export exports current page or all
-
----
-
-## User Story 16.5: User & Feedback Pagination
-**As a user**  
-**I want pagination on all list endpoints**  
-**So that application is consistently performant**
-
-### Priority: MEDIUM
-### Owner: Sharen
-
-### Tasks:
-1. **Update UserRepository**
-   - Add Pageable to findAll, findByRole, findByDepartment
-
-2. **Update FeedbackRepository**
-   - Add Pageable to query methods
-
-3. **Update Controllers**
-   - Add pagination to UserController
-   - Add pagination to FeedbackController
-
-### Acceptance Criteria:
-- ✅ All list endpoints paginated
-- ✅ Consistent pagination behavior
-- ✅ Documentation updated
-
----
-
-# 📊 IMPLEMENTATION SUMMARY
-
-## Phase 1: Critical Foundation (Week 1)
-**Priority: HIGH**
-
-1. **Logging Infrastructure** (Kashish, Pratik, Rudra)
-   - Story 12.1: Logback configuration
-   - Story 12.2: AOP logging
-   - Story 12.3: Request logging
-
-2. **Utility Classes** (Ankit, Kashish)
-   - Story 14.1: NotificationUtil
-   - Story 14.2: AuditUtil
-   - Story 14.3: Audit aspect
-
-3. **Parent POM & Profiles** (Ankit, Kashish)
-   - Story 13.1: Parent POM
-   - Story 13.2: Profile configuration
-
----
-
-## Phase 2: Core Features (Week 2)
-**Priority: HIGH**
-
-1. **Pagination** (Rudra, Pratik, Kashish, Sharen, Ankit)
-   - Story 16.1: Goals pagination
-   - Story 16.2: Reviews pagination
-   - Story 16.3: Notifications pagination
-   - Story 16.4: Audit logs pagination
-   - Story 16.5: Users & feedback pagination
-
-2. **Critical Schedulers** (Ankit, Kashish)
-   - Story 11.1: Review reminders
-   - Story 11.2: Stale goal detection
-
----
-
-## Phase 3: Enhanced Features (Week 3)
-**Priority: MEDIUM**
-
-1. **Rate Limiting** (Rudra, Sharen)
-   - Story 15.1: Basic rate limiting
-   - Story 15.2: Role-based limits
-
-2. **Additional Schedulers** (Pratik, Ankit, Akashat)
-   - Story 11.3: Completion follow-up
-   - Story 11.4: Notification cleanup
-   - Story 11.5: Weekly reports
-
-3. **Advanced Logging** (Sharen, Akashat)
-   - Story 12.4: Database query logging
-   - Story 12.5: Business event logging
-
----
-
-## Phase 4: Refinement (Week 4)
-**Priority: LOW-MEDIUM**
-
-1. **Module Refactoring** (Pratik)
-   - Story 13.3: Common module extraction
-
-2. **Monitoring** (Akashat)
-   - Story 15.3: Rate limit monitoring
-
----
-
-## Team Task Distribution
-
-### Ankit (Lead - 10 tasks)
-- Parent POM & profiles (2 stories)
-- Utility classes (2 stories)
-- Schedulers (2 stories)
-- Pagination (1 story)
-- **Total: 7 stories**
-
-### Kashish (8 tasks)
-- Logging infrastructure (2 stories)
-- Utility audit aspect (1 story)
-- Profiles (1 story)
-- Schedulers (1 story)
-- Pagination (1 story)
-- **Total: 6 stories**
-
-### Rudra (6 tasks)
-- Logging (1 story)
-- Pagination (1 story)
-- Rate limiting (1 story)
-- **Total: 3 stories**
-
-### Pratik (7 tasks)
-- Logging AOP (1 story)
-- Schedulers (1 story)
-- Pagination (1 story)
-- Module refactoring (1 story)
-- **Total: 4 stories**
-
-### Sharen (5 tasks)
-- Logging (1 story)
-- Rate limiting (1 story)
-- Pagination (1 story)
-- **Total: 3 stories**
-
-### Akashat (4 tasks)
-- Business logging (1 story)
-- Scheduler (1 story)
-- Rate limit monitoring (1 story)
-- **Total: 3 stories**
-
----
-
-## Configuration Files to Create
-
-1. **logback-spring.xml**
-2. **application-dev.properties**
-3. **application-test.properties**
-4. **application-prod.properties**
-5. **notification-templates.properties**
-6. **Parent pom.xml**
-7. **Scheduler configuration class**
-8. **Rate limit configuration class**
-
----
-
-## Expected Outcomes
-
-✅ **Logging**: 5 separate log files with rotation  
-✅ **Schedulers**: 5 automated jobs running on schedule  
-✅ **Profiles**: 3 environments with proper isolation  
-✅ **Utilities**: 100% code reuse for notifications & audits  
-✅ **Rate Limiting**: API abuse prevented  
-✅ **Pagination**: All lists optimized for performance  
-
----
-
-This plan provides enterprise-grade enhancements that will make your PerformanceTrack system production-ready! Each story has clear tasks and acceptance criteria. Would you like me to start with detailed code for any specific story?
+Total estimated time: **17 hours** across the team over 2-3 weeks.
